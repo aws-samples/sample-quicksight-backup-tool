@@ -1,0 +1,34 @@
+# Sample configuration file for QuickSight Backup Tool
+# Copy this file to config.yaml and update with your settings
+
+aws:
+  region: eu-west-1
+  identity_region: us-east-1
+  account_id: "123456789123"
+  # Optional: Separate region for user/group operations (if different from main region)
+  # identity_region: us-east-1
+  # Optional: Explicit AWS credentials (if not using default credential chain)
+  # access_key_id: "YOUR_ACCESS_KEY"
+  # secret_access_key: "YOUR_SECRET_KEY"
+  # session_token: "YOUR_SESSION_TOKEN"
+
+dynamodb:
+  users_table_name: "quicksight-users-backup"
+  groups_table_name: "quicksight-groups-backup"
+  users_group_table_name: "quicksight-users-groups-backup"
+
+s3:
+  bucket_name: "sample-backup-bucket"
+  prefix_format: "YYYY/MM/DD" # Options: YYYY/MM/DD, YYYY-MM-DD, YYYYMMDD
+  prefix: "quicksight-backups" # Custom S3 prefix for organizing asset bundles
+
+backup:
+  include_dependencies: true
+  include_permissions: true
+  include_tags: true
+  export_format: "QUICKSIGHT_JSON" # Options: QUICKSIGHT_JSON, CLOUDFORMATION_JSON
+  max_assets_per_bundle: 99 # Maximum assets per bundle (1-100), defaults to 50
+
+logging:
+  level: "INFO" # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file_path: "./logs/backup.log"

@@ -1,0 +1,32 @@
+# Basic QuickSight Backup Configuration
+# This is a minimal configuration for getting started with QuickSight backups
+
+# AWS Configuration
+aws:
+  region: us-east-1                    # Your AWS region for assets (datasources, datasets, analyses, dashboards)
+  identity_region: us-east-1           # Region for QuickSight users and groups (optional, defaults to region)
+  account_id: "123456789012"           # Your AWS account ID (12-digit string)
+
+# DynamoDB Configuration
+dynamodb:
+  users_table_name: "quicksight-users-backup"    # Table name for user data
+  groups_table_name: "quicksight-groups-backup"  # Table name for group data
+  users_group_table_name: "quicksight-users-groups-backup"  # Table name for user-group membership data
+
+# S3 Configuration  
+s3:
+  bucket_name: "my-quicksight-backups"  # S3 bucket for asset bundles (must exist)
+  prefix_format: "YYYY/MM/DD"          # Date-based folder structure
+
+# Backup Options (all optional - these are the defaults)
+backup:
+  include_dependencies: true           # Include asset dependencies in exports
+  include_permissions: true            # Include sharing permissions
+  include_tags: true                   # Include resource tags
+  export_format: "QUICKSIGHT_JSON"     # Export format (only option currently)
+  max_assets_per_bundle: 50            # Maximum assets per bundle (1-100), defaults to 50
+
+# Logging Configuration (optional)
+logging:
+  level: "INFO"                        # Log level: DEBUG, INFO, WARNING, ERROR
+  file_path: "./logs/backup.log"       # Log file path (optional)
