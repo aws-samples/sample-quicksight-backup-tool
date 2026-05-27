@@ -1,4 +1,4 @@
-# Sample configuration file for Quick Sight Backup Tool
+# Sample configuration file for Amazon Quick Sight Backup Tool
 # Copy this file to config.yaml and update with your settings
 
 aws:
