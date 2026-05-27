@@ -45,6 +45,7 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
+.scanresults
 *.cover
 *.py,cover
 .hypothesis/
@@ -122,3 +123,4 @@ Thumbs.db
 *.swp
 *.swo
 *~
+.scanresults/*

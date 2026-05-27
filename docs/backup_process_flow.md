@@ -1,10 +1,10 @@
-# QuickSight Backup Process Flow Diagram
+# Amazon Quick Sight Backup Process Flow Diagram
 
 ## Overview Flow Diagram
 
 ```mermaid
 flowchart TD
-    A[User Executes CLI Command] --> B[Load Configuration File]
+    A[User Runs CLI Command] --> B[Load Configuration File]
     B --> C{Configuration Valid?}
     C -->|No| D[Exit with Error]
     C -->|Yes| E[Initialize AWS Clients]
@@ -14,19 +14,19 @@ flowchart TD
     H -->|Yes| I[Validate Configuration & Exit]
     H -->|No| J{Select Backup Mode}
     
-    J -->|users-only| K[Execute User/Group Backup]
-    J -->|assets-only| L[Execute Asset Bundle Backup]
-    J -->|full| M[Execute Full Backup]
+    J -->|users-only| K[Run User/Group Backup]
+    J -->|assets-only| L[Run Asset Bundle Backup]
+    J -->|full| M[Run Full Backup]
     
     M --> K
-    K --> N[Retrieve QuickSight Users]
-    N --> O[Retrieve QuickSight Groups]
+    K --> N[Retrieve Quick Sight Users]
+    N --> O[Retrieve Quick Sight Groups]
     O --> P[Store Users in DynamoDB]
     P --> Q[Store Groups in DynamoDB]
     Q -->|full mode| L
     Q -->|users-only| AA[Generate Reports]
     
-    L --> R[Discover QuickSight Assets]
+    L --> R[Discover Quick Sight Assets]
     R --> S{Filter FILE Datasets?}
     S -->|Yes| T[Exclude FILE Datasets from List]
     S -->|No| U[Keep All Assets]
@@ -198,7 +198,7 @@ flowchart TD
     
     G --> J
     I --> J
-    J --> K[Execute Batch Write]
+    J --> K[Run Batch Write]
     K --> L{Write Successful?}
     L -->|No| M{Retry Available?}
     M -->|Yes| N[Apply Backoff & Retry]
@@ -225,9 +225,9 @@ flowchart TD
 ## Key Decision Points
 
 ### 1. Backup Mode Selection
-- **Full**: Execute both user/group and asset bundle backups
-- **Users-only**: Execute only user/group backup to DynamoDB
-- **Assets-only**: Execute only asset bundle backup to S3
+- **Full**: Run both user/group and asset bundle backups
+- **Users-only**: Run only user/group backup to DynamoDB
+- **Assets-only**: Run only asset bundle backup to S3
 
 ### 2. Asset Filtering
 - **FILE Datasets**: Always excluded from asset bundle exports per requirements

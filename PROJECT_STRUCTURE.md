@@ -1,4 +1,4 @@
-# QuickSight Backup Tool - Project Structure
+# Amazon Quick Sight Backup Tool - Project Structure
 
 ## Directory Structure
 

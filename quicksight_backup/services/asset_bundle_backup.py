@@ -53,7 +53,13 @@ class AssetBundleBackupService(BaseBackupService):
         session_kwargs = {'region_name': region}
         
         # Use explicit credentials if provided, otherwise use default credential chain
+        # WARNING: Passing credentials via configuration is not recommended for production.
+        # Use IAM roles or the default AWS credential chain instead.
         if self.config.aws_access_key_id and self.config.aws_secret_access_key:
+            logger.warning(
+                "Using explicit credentials from configuration. "
+                "For production, use IAM roles or the default AWS credential chain instead."
+            )
             session_kwargs.update({
                 'aws_access_key_id': self.config.aws_access_key_id,
                 'aws_secret_access_key': self.config.aws_secret_access_key
@@ -1292,15 +1298,15 @@ class AssetBundleBackupService(BaseBackupService):
             logger.info(f"Completed multipart upload with {len(parts)} parts")
         
         except Exception as e:
-            # Abort multipart upload on error
+            # Cancel multipart upload on error
             try:
                 self.s3_client.abort_multipart_upload(
                     Bucket=self.config.s3_bucket_name,
                     Key=s3_key,
                     UploadId=upload_id
                 )
-                logger.info("Aborted multipart upload due to error")
-            except Exception as abort_error:
-                logger.warning(f"Failed to abort multipart upload: {str(abort_error)}")
+                logger.info("Canceled multipart upload due to error")
+            except Exception as cancel_error:
+                logger.warning(f"Failed to cancel multipart upload: {str(cancel_error)}")
             
             raise e

@@ -1,5 +1,5 @@
 """
-Configuration management for QuickSight backup operations.
+Configuration management for Amazon Quick Sight backup operations.
 """
 
 import json

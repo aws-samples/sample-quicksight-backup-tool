@@ -25,9 +25,9 @@ def get_version():
 setup(
     name="quicksight-backup-tool",
     version=get_version(),
-    author="QuickSight Backup Tool Team",
-    author_email="support@quicksight-backup.com",
-    description="A comprehensive backup solution for Amazon QuickSight resources including users, groups, and asset bundles",
+    author="Example Corp",
+    author_email="support@example.com",
+    description="A comprehensive backup solution for Amazon Quick Sight resources including users, groups, and asset bundles",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
     url="https://github.com/quicksight-backup/quicksight-backup-tool",

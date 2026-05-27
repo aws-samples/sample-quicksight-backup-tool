@@ -1,4 +1,4 @@
-# QuickSight Backup Tool - Configuration Examples
+# Amazon Quick Sight Backup Tool - Configuration Examples
 
 This directory contains example configuration files for different deployment scenarios. Choose the configuration that best matches your environment and customize it according to your needs.
 
@@ -48,7 +48,7 @@ This directory contains example configuration files for different deployment sce
 
 ### 7. Minimal JSON Configuration (`config-minimal.json`)
 **Use Case**: Programmatic configuration, CI/CD pipelines
-- JSON format for easy parsing
+- JSON format for programmatic parsing
 - Only required parameters
 - Suitable for automation scripts
 - Template for dynamic configuration generation
@@ -80,7 +80,7 @@ This directory contains example configuration files for different deployment sce
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `aws.region` | AWS region for QuickSight assets (datasources, datasets, analyses, dashboards) | `us-east-1` |
+| `aws.region` | AWS region for Amazon Quick Sight assets (datasources, datasets, analyses, dashboards) | `us-east-1` |
 | `aws.account_id` | AWS account ID (12-digit string) | `"123456789012"` |
 | `dynamodb.users_table_name` | DynamoDB table name for user data | `quicksight-users-backup` |
 | `dynamodb.groups_table_name` | DynamoDB table name for group data | `quicksight-groups-backup` |
@@ -90,7 +90,7 @@ This directory contains example configuration files for different deployment sce
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `aws.identity_region` | `aws.region` | AWS region for QuickSight users and groups |
+| `aws.identity_region` | `aws.region` | AWS region for Amazon Quick Sight users and groups |
 | `s3.prefix_format` | `YYYY/MM/DD` | Date-based folder structure in S3 |
 | `backup.include_dependencies` | `true` | Include asset dependencies in exports |
 | `backup.include_permissions` | `true` | Include sharing permissions |
@@ -101,9 +101,9 @@ This directory contains example configuration files for different deployment sce
 
 ## Environment-Specific Considerations
 
-### Multi-Region QuickSight Deployments
-- **Identity Region**: QuickSight users and groups are managed in a single region (typically us-east-1)
-- **Asset Regions**: QuickSight assets (datasources, datasets, analyses, dashboards) can exist in multiple regions
+### Multi-Region Amazon Quick Sight Deployments
+- **Identity Region**: Amazon Quick Sight users and groups are managed in a single region (typically us-east-1)
+- **Asset Regions**: Quick Sight assets (datasources, datasets, analyses, dashboards) can exist in multiple regions
 - **Configuration**: Use `identity_region` for users/groups and `region` for assets
 - **Example**: Users managed in us-east-1, assets deployed in us-west-2
 

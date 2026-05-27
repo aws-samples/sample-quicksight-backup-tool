@@ -9,10 +9,10 @@ description = "A comprehensive backup solution for Amazon QuickSight resources i
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "QuickSight Backup Tool Team", email = "support@quicksight-backup.com"}
+    {name = "Example Corp", email = "support@example.com"}
 ]
 maintainers = [
-    {name = "QuickSight Backup Tool Team", email = "support@quicksight-backup.com"}
+    {name = "Example Corp", email = "support@example.com"}
 ]
 keywords = ["aws", "quicksight", "backup", "automation", "boto3", "dynamodb", "s3", "asset-bundle", "disaster-recovery", "migration"]
 classifiers = [
@@ -62,12 +62,12 @@ test = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/quicksight-backup/quicksight-backup-tool"
-Documentation = "https://github.com/quicksight-backup/quicksight-backup-tool/wiki"
-Repository = "https://github.com/quicksight-backup/quicksight-backup-tool"
-"Bug Reports" = "https://github.com/quicksight-backup/quicksight-backup-tool/issues"
-Changelog = "https://github.com/quicksight-backup/quicksight-backup-tool/blob/main/CHANGELOG.md"
-Funding = "https://github.com/sponsors/quicksight-backup"
+Homepage = "https://example.com/quicksight-backup-tool"
+Documentation = "https://example.com/quicksight-backup-tool/wiki"
+Repository = "https://example.com/quicksight-backup-tool"
+"Bug Reports" = "https://example.com/quicksight-backup-tool/issues"
+Changelog = "https://example.com/quicksight-backup-tool/blob/main/CHANGELOG.md"
+Funding = "https://example.com/quicksight-backup-tool/sponsors"
 
 [project.scripts]
 quicksight-backup = "quicksight_backup.cli:main"

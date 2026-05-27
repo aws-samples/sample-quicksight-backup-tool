@@ -3,8 +3,8 @@
 
 # AWS Configuration
 aws:
-  region: us-east-1                    # Region for QuickSight assets
-  identity_region: us-east-1           # Region for QuickSight users and groups
+  region: us-east-1                    # Region for Quick Sight assets
+  identity_region: us-east-1           # Region for Quick Sight users and groups
   account_id: "123456789012"
 
 # DynamoDB Configuration with enterprise naming conventions
@@ -82,7 +82,7 @@ logging:
 #         "quicksight:Describe*",
 #         "quicksight:StartAssetBundleExportJob"
 #       ],
-#       "Resource": "*",
+#       "Resource": "arn:aws:quicksight:us-east-1:123456789012:*",
 #       "Condition": {
 #         "StringEquals": {
 #           "aws:RequestedRegion": "us-east-1"

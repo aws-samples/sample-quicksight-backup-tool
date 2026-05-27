@@ -4,13 +4,11 @@
 aws:
   region: eu-west-1
   identity_region: us-east-1
-  account_id: "123456789123"
+  account_id: "123456789012"
   # Optional: Separate region for user/group operations (if different from main region)
   # identity_region: us-east-1
-  # Optional: Explicit AWS credentials (if not using default credential chain)
-  # access_key_id: "YOUR_ACCESS_KEY"
-  # secret_access_key: "YOUR_SECRET_KEY"
-  # session_token: "YOUR_SESSION_TOKEN"
+  # Note: Never store AWS credentials in configuration files.
+  # Use IAM roles for EC2/ECS/Lambda, or retrieve credentials from AWS Secrets Manager at runtime.
 
 dynamodb:
   users_table_name: "quicksight-users-backup"

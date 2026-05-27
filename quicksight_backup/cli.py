@@ -178,9 +178,9 @@ Examples:
     return parser
 
 
-def execute_backup(args: argparse.Namespace) -> int:
+def run_backup(args: argparse.Namespace) -> int:
     """
-    Execute the backup operation based on CLI arguments.
+    Run the backup operation based on CLI arguments.
     
     Args:
         args: Parsed command line arguments
@@ -210,10 +210,10 @@ def execute_backup(args: argparse.Namespace) -> int:
             print("Dry run completed successfully. Use --mode to execute actual backup.")
             return 0
         
-        # Execute backup based on mode
-        logger.info(f"Executing backup in '{args.mode}' mode")
+        # Run backup based on mode
+        logger.info(f"Running backup in '{args.mode}' mode")
         
-        backup_report = orchestrator.execute_backup()
+        backup_report = orchestrator.run_backup()
         
         # Generate output files
         output_dir = Path(args.output_dir) if args.output_dir else Path.cwd()
@@ -298,8 +298,8 @@ def main() -> int:
     # Setup logging
     setup_logging(verbose=args.verbose, log_file=args.log_file)
     
-    # Execute backup
-    return execute_backup(args)
+    # Run backup
+    return run_backup(args)
 
 
 if __name__ == '__main__':

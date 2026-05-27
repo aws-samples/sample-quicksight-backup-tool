@@ -88,9 +88,9 @@ class QuickSightBackupOrchestrator:
             self.logger.error(f"Orchestrator initialization failed: {str(e)}")
             raise
     
-    def execute_backup(self) -> BackupReport:
+    def run_backup(self) -> BackupReport:
         """
-        Execute the complete backup workflow.
+        Run the complete backup workflow.
         
         Returns:
             BackupReport: Comprehensive backup report
@@ -114,14 +114,14 @@ class QuickSightBackupOrchestrator:
             
             if self.mode == 'full' or self.mode == 'users-only':
                 # Step 1: Backup users and groups
-                self.logger.info("Step 1: Executing user and group backup")
-                user_group_result = self._execute_user_group_backup()
+                self.logger.info("Step 1: Running user and group backup")
+                user_group_result = self._run_user_group_backup()
                 self.backup_results.append(user_group_result)
             
             # Step 2: Backup asset bundles
             if self.mode == 'full' or self.mode == 'assets-only':
-                self.logger.info("Step 2: Executing asset bundle backup")
-                asset_bundle_result = self._execute_asset_bundle_backup()
+                self.logger.info("Step 2: Running asset bundle backup")
+                asset_bundle_result = self._run_asset_bundle_backup()
                 self.backup_results.append(asset_bundle_result)
             
             # Generate backup report
@@ -151,9 +151,9 @@ class QuickSightBackupOrchestrator:
             
             raise QuickSightBackupError(f"Backup workflow failed: {str(e)}")
     
-    def _execute_user_group_backup(self) -> BackupResult:
+    def _run_user_group_backup(self) -> BackupResult:
         """
-        Execute user and group backup operation.
+        Run user and group backup operation.
         
         
         Returns:
@@ -199,9 +199,9 @@ class QuickSightBackupOrchestrator:
             
             return result
     
-    def _execute_asset_bundle_backup(self) -> BackupResult:
+    def _run_asset_bundle_backup(self) -> BackupResult:
         """
-        Execute asset bundle backup operation.
+        Run asset bundle backup operation.
         
         Returns:
             BackupResult: Result of asset bundle backup

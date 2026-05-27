@@ -72,6 +72,8 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
+> **Cost Warning**: The resources configured in this tool incur AWS charges. DynamoDB tables are charged based on storage and read/write capacity. S3 buckets are charged for storage, requests, and data transfer. Monitor your AWS billing dashboard and set up billing alarms to avoid unexpected charges. See the [Cleanup](#cleanup-and-resource-deletion) section to delete resources when no longer needed.
+
 1. **Create a configuration file** (see [Configuration](#configuration) section):
 
 ```yaml
@@ -102,10 +104,30 @@ logging:
   file_path: "./logs/backup.log"
 ```
 
-2. **Run the backup**:
+2. **Create the S3 bucket**:
+
+```bash
+aws s3 mb s3://my-quicksight-backups --region us-east-1
+```
+
+Replace the bucket name and region to match your configuration file.
+
+3. **Run the backup**:
 
 ```bash
 quicksight-backup --config config.yaml
+```
+
+4. **Verify the backup**:
+
+Check for successful completion in the console output. Verify S3 bundles and DynamoDB tables were created:
+
+```bash
+# Verify S3 asset bundles
+aws s3 ls s3://my-quicksight-backups/quicksight-backups/$(date +%Y/%m/%d)/
+
+# Verify DynamoDB backup tables
+aws dynamodb list-tables --query 'TableNames[?contains(@, `quicksight`) && contains(@, `backup`)]'
 ```
 
 ## Usage
@@ -322,7 +344,7 @@ The tool requires the following AWS IAM permissions:
         "quicksight:StartAssetBundleExportJob",
         "quicksight:DescribeAssetBundleExportJob"
       ],
-      "Resource": "*"
+      "Resource": "arn:aws:quicksight:*:123456789012:*"
     }
   ]
 }
@@ -416,15 +438,17 @@ All formats are converted to `YYYY-MM-DD` for DynamoDB table names to ensure:
 
 #### Table Management
 
-**Important**: Each backup run creates new DynamoDB tables. Consider implementing a cleanup policy to manage costs:
+**Important**: Each backup run creates new DynamoDB tables that incur ongoing storage charges. S3 backup bundles also accrue storage costs. Without cleanup, costs will continue to grow with each backup. Implement a cleanup policy to delete old backups and control costs:
 
 ```bash
 # Example: List all backup tables
 aws dynamodb list-tables --query 'TableNames[?contains(@, `quicksight-`) && contains(@, `-backup`)]'
 
-# Example: Delete old backup tables (be careful!)
+# Example: Delete old backup tables
 aws dynamodb delete-table --table-name 2025-10-01-quicksight-users-backup
 ```
+
+**Warning**: The delete-table command permanently deletes backup data and cannot be undone. Verify you no longer need this backup before proceeding.
 
 ## Output Structure
 
@@ -510,6 +534,47 @@ The tool generates two types of output files:
 
 1. **Backup Manifest** (`backup_manifest_YYYYMMDD_HHMMSS.json`): Machine-readable JSON file listing all backed up resources
 2. **Backup Report** (`backup_report_YYYYMMDD_HHMMSS.txt`): Human-readable summary with statistics and any errors
+
+## Cleanup and Resource Deletion
+
+When you no longer need the backup infrastructure, follow these steps to delete resources and stop incurring charges.
+
+### Delete DynamoDB Tables
+
+```bash
+# List all backup tables
+aws dynamodb list-tables --query 'TableNames[?contains(@, `quicksight-`) && contains(@, `-backup`)]'
+
+# Delete specific backup tables (replace YYYY-MM-DD with actual date)
+aws dynamodb delete-table --table-name YYYY-MM-DD-quicksight-users-backup
+aws dynamodb delete-table --table-name YYYY-MM-DD-quicksight-groups-backup
+aws dynamodb delete-table --table-name YYYY-MM-DD-quicksight-users-groups-backup
+```
+
+**Warning**: This permanently deletes backup data and cannot be undone.
+
+### Delete S3 Backup Bundles
+
+```bash
+# Empty the backup prefix
+aws s3 rm s3://my-quicksight-backups/quicksight-backups/ --recursive
+
+# Delete the bucket (if dedicated to backups)
+aws s3 rb s3://my-quicksight-backups
+```
+
+**Warning**: This permanently deletes all backup bundles. Verify you no longer need these backups.
+
+### Verify Deletion
+
+```bash
+aws dynamodb list-tables | grep quicksight
+aws s3 ls | grep quicksight-backups
+```
+
+### Cost Impact
+
+Backup resources incur ongoing charges until deleted. DynamoDB tables and S3 storage accrue costs daily. Implement a retention policy to automatically delete old backups and control costs.
 
 ## Troubleshooting
 
@@ -696,7 +761,7 @@ If you encounter issues not covered here:
    - Configuration file (remove sensitive data)
    - Complete error message
    - Debug log output
-   - AWS region and QuickSight setup details
+   - AWS region and Quick Sight setup details
 
 ## Development
 

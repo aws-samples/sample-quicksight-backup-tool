@@ -1,12 +1,12 @@
 """
-Custom exception classes for QuickSight backup operations.
+Custom exception classes for Amazon Quick Sight backup operations.
 """
 
 from typing import Optional, Dict, Any
 
 
 class QuickSightBackupError(Exception):
-    """Base exception for QuickSight backup operations."""
+    """Base exception for Amazon Quick Sight backup operations."""
     
     def __init__(self, message: str, error_code: Optional[str] = None, 
                  context: Optional[Dict[str, Any]] = None):
@@ -27,7 +27,7 @@ class AWSCredentialsError(QuickSightBackupError):
 
 
 class QuickSightAPIError(QuickSightBackupError):
-    """Exception raised for QuickSight API-related errors."""
+    """Exception raised for Amazon Quick Sight API-related errors."""
     pass
 
 
