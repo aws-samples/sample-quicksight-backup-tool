@@ -29,7 +29,7 @@ quicksight-backup-tool/
 ### Models Package (`quicksight_backup/models/`)
 - **config.py**: `BackupConfig` dataclass for configuration management
 - **backup_result.py**: `BackupResult`, `BackupReport`, and `BackupStatus` for operation results
-- **asset_inventory.py**: `AssetInventory` for tracking discovered QuickSight assets
+- **asset_inventory.py**: `AssetInventory` for tracking discovered Quick Sight assets
 - **exceptions.py**: Custom exception classes for error handling
 
 ### Services Package (`quicksight_backup/services/`)

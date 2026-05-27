@@ -1,5 +1,5 @@
 """
-Setup configuration for QuickSight Backup Tool.
+Setup configuration for Quick Sight Backup Tool.
 """
 
 from setuptools import setup, find_packages
@@ -11,7 +11,7 @@ def read_readme():
     if os.path.exists(readme_path):
         with open(readme_path, 'r', encoding='utf-8') as f:
             return f.read()
-    return "QuickSight Backup Tool - A comprehensive backup solution for Amazon QuickSight resources."
+    return "Quick Sight Backup Tool - A comprehensive backup solution for Amazon Quick Sight resources."
 
 # Read version from package
 def get_version():

@@ -1,5 +1,5 @@
 """
-Asset bundle backup service for QuickSight resources.
+Asset bundle backup service for Quick Sight resources.
 """
 
 import boto3
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class AssetBundleBackupService(BaseBackupService):
-    """Service for backing up QuickSight assets using AssetBundle APIs."""
+    """Service for backing up Quick Sight assets using AssetBundle APIs."""
     
     def __init__(self, config: BackupConfig):
         super().__init__(config)
@@ -134,7 +134,7 @@ class AssetBundleBackupService(BaseBackupService):
         return result
     
     def discover_assets(self) -> AssetInventory:
-        """Discover all QuickSight assets for backup."""
+        """Discover all Quick Sight assets for backup."""
         inventory = AssetInventory()
         
         try:
@@ -198,7 +198,7 @@ class AssetBundleBackupService(BaseBackupService):
         return chunks
     
     def _list_datasources(self) -> List[Dict[str, Any]]:
-        """List all QuickSight datasources, excluding S3 manifest-based datasources."""
+        """List all Quick Sight datasources, excluding S3 manifest-based datasources."""
         datasources = []
         skipped_count = 0
         paginator = self.quicksight_client.get_paginator('list_data_sources')
@@ -835,7 +835,7 @@ class AssetBundleBackupService(BaseBackupService):
         return skipped_arns
     
     def _list_datasets(self) -> List[Dict[str, Any]]:
-        """List all QuickSight datasets, excluding FILE datasets."""
+        """List all Quick Sight datasets, excluding FILE datasets."""
         datasets = []
         skipped_count = 0
         paginator = self.quicksight_client.get_paginator('list_data_sets')
@@ -876,7 +876,7 @@ class AssetBundleBackupService(BaseBackupService):
         return datasets
     
     def _list_analyses(self) -> List[Dict[str, Any]]:
-        """List all QuickSight analyses, excluding those with invalid dependencies."""
+        """List all Quick Sight analyses, excluding those with invalid dependencies."""
         analyses = []
         skipped_count = 0
         paginator = self.quicksight_client.get_paginator('list_analyses')
@@ -903,7 +903,7 @@ class AssetBundleBackupService(BaseBackupService):
         return analyses
     
     def _list_dashboards(self) -> List[Dict[str, Any]]:
-        """List all QuickSight dashboards, excluding those with invalid dependencies."""
+        """List all Quick Sight dashboards, excluding those with invalid dependencies."""
         dashboards = []
         skipped_count = 0
         paginator = self.quicksight_client.get_paginator('list_dashboards')
@@ -932,7 +932,7 @@ class AssetBundleBackupService(BaseBackupService):
     def validate_prerequisites(self) -> bool:
         """Validate prerequisites for asset bundle backup."""
         try:
-            # Test QuickSight access
+            # Test Quick Sight access
             self.quicksight_client = self.get_client('quicksight-admin')
             self.quicksight_client.describe_account_settings(AwsAccountId=self.config.aws_account_id)
             
@@ -1174,7 +1174,7 @@ class AssetBundleBackupService(BaseBackupService):
         return f"{self.config.s3_prefix}/{date_prefix}/{asset_type}/{filename}"
     
     def download_and_upload_bundle(self, download_url: str, s3_key: str) -> bool:
-        """Download asset bundle from QuickSight and upload to S3."""
+        """Download asset bundle from Quick Sight and upload to S3."""
         import requests
         import tempfile
         import os

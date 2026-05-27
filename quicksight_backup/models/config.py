@@ -1,5 +1,5 @@
 """
-Configuration data models for QuickSight backup operations.
+Configuration data models for Quick Sight backup operations.
 """
 
 from dataclasses import dataclass
@@ -12,7 +12,7 @@ from .exceptions import ConfigurationError
 
 @dataclass
 class BackupConfig:
-    """Configuration settings for QuickSight backup operations."""
+    """Configuration settings for Quick Sight backup operations."""
     
     # No default values
     s3_bucket_name: str
@@ -42,7 +42,9 @@ class BackupConfig:
     logging_level: str = "INFO"
     logging_file_path: str = "./logs/backup.log"
     
-    # Optional AWS Credentials
+    # Optional AWS Credentials (not recommended for production use)
+    # For production, use IAM roles (EC2/ECS/Lambda) or the default AWS credential chain.
+    # See: https://docs.aws.amazon.com/sdkref/latest/guide/standardized-credentials.html
     aws_access_key_id: Optional[str] = None
     aws_secret_access_key: Optional[str] = None
     aws_session_token: Optional[str] = None
@@ -302,7 +304,7 @@ class BackupConfig:
             
             session = boto3.Session(**session_kwargs)
             
-            # Test QuickSight access (use identity_region if configured, otherwise aws_region)
+            # Test Quick Sight access (use identity_region if configured, otherwise aws_region)
             try:
                 identity_region = self.identity_region or self.aws_region
                 identity_session_kwargs = session_kwargs.copy()
@@ -314,13 +316,13 @@ class BackupConfig:
             except ClientError as e:
                 error_code = e.response['Error']['Code']
                 if error_code == 'AccessDeniedException':
-                    errors.append("Insufficient permissions for QuickSight operations")
+                    errors.append("Insufficient permissions for Quick Sight operations")
                 elif error_code == 'InvalidParameterValueException':
-                    errors.append("Invalid AWS account ID for QuickSight")
+                    errors.append("Invalid AWS account ID for Quick Sight")
                 else:
-                    errors.append(f"QuickSight access error: {error_code}")
+                    errors.append(f"Quick Sight access error: {error_code}")
             except Exception as e:
-                errors.append(f"QuickSight connectivity error: {str(e)}")
+                errors.append(f"Quick Sight connectivity error: {str(e)}")
             
             # Test DynamoDB access
             try:

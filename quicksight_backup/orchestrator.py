@@ -1,5 +1,5 @@
 """
-Main backup orchestrator for QuickSight backup operations.
+Main backup orchestrator for Quick Sight backup operations.
 """
 
 import logging
@@ -58,7 +58,7 @@ class QuickSightBackupOrchestrator:
             AWSCredentialsError: If AWS connectivity validation fails
         """
         try:
-            self.logger.info("Initializing QuickSight Backup Orchestrator")
+            self.logger.info("Initializing Quick Sight Backup Orchestrator")
             
             # Load configuration
             self.config_manager = ConfigurationManager()
@@ -105,7 +105,7 @@ class QuickSightBackupOrchestrator:
         self.backup_results = []
         
         try:
-            self.logger.info("Starting QuickSight backup workflow")
+            self.logger.info("Starting Quick Sight backup workflow")
             self.logging_service.log_info("Backup workflow started", {
                 'config_path': self.config_path,
                 'aws_account_id': self.config.aws_account_id,
@@ -378,7 +378,7 @@ class QuickSightBackupOrchestrator:
         
         report_lines = [
             "=" * 60,
-            "QuickSight Backup Report Summary",
+            "Quick Sight Backup Report Summary",
             "=" * 60,
             f"Backup Date: {self.backup_report.start_time.strftime('%Y-%m-%d %H:%M:%S')}",
             f"AWS Account: {self.config.aws_account_id}",

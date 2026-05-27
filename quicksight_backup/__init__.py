@@ -1,7 +1,7 @@
 """
-QuickSight Backup Tool
+Quick Sight Backup Tool
 
-A comprehensive backup solution for Amazon QuickSight resources.
+A comprehensive backup solution for Amazon Quick Sight resources.
 """
 
 from .config import ConfigurationManager
@@ -22,7 +22,7 @@ from .models import (
 )
 
 __version__ = "1.0.0"
-__author__ = "QuickSight Backup Tool"
+__author__ = "Quick Sight Backup Tool"
 
 __all__ = [
     "ConfigurationManager",

@@ -1,25 +1,29 @@
-# QuickSight Backup Tool
+# Quick Sight Backup Tool
 
-A comprehensive backup solution for Amazon QuickSight resources including users, groups, datasources, datasets, analyses, and dashboards.
+A comprehensive backup solution for Amazon Quick Sight resources including users, groups, datasources, datasets, analyses, and dashboards.
 
 ## ⚠️ Important Disclaimer
 
-**This code is provided as an example implementation for educational and inspirational purposes.** It demonstrates one approach to implementing a QuickSight backup strategy using AWS APIs and services. Before deploying this solution in a production environment, you should:
+**This code is provided as an example implementation for educational and inspirational purposes.** It demonstrates one approach to implementing a Quick Sight backup strategy using AWS APIs and services. Before deploying this solution in a production environment, you should:
 
 - **Review and understand** all code components and their implications for your specific environment
 - **Adapt the implementation** to meet your organization's security, compliance, and operational requirements
 - **Conduct thorough testing** in a non-production environment that mirrors your production setup
 - **Implement appropriate monitoring, alerting, and error handling** for your operational needs
-- **Ensure compliance** with your industry regulations and internal policies regarding data backup and retention
+- **Help support compliance** with your industry regulations and internal policies regarding data backup and retention
 - **Consider additional security measures** such as encryption at rest, access controls, and audit logging
 - **Validate backup integrity** and test restore procedures regularly
 - **Review AWS service limits** and costs associated with your specific usage patterns
 
 This tool serves as a starting point and reference implementation. Production deployments should be thoroughly reviewed by your security, compliance, and operations teams before implementation.
 
+## Introduction
+
+Amazon Quick Sight does not provide a native backup mechanism for BI assets such as dashboards, analyses, datasets, and data sources. This means that accidental deletions or unintended modifications can result in permanent data loss. The Quick Sight Backup Tool addresses this gap by providing automated backup capabilities for your Amazon Quick Sight environment.
+
 ## Overview
 
-The QuickSight Backup Tool provides automated backup capabilities for your Amazon QuickSight environment, helping you maintain disaster recovery capabilities and facilitate migration scenarios. The tool uses AWS APIs to export and backup all critical QuickSight components to DynamoDB (for users/groups) and S3 (for asset bundles).
+The Quick Sight Backup Tool provides automated backup capabilities for your Amazon Quick Sight environment, helping you maintain disaster recovery capabilities and facilitate migration scenarios. The tool uses AWS APIs to export and backup all critical Quick Sight components to DynamoDB (for users/groups) and S3 (for asset bundles).
 
 ## Features
 
@@ -41,6 +45,7 @@ The QuickSight Backup Tool provides automated backup capabilities for your Amazo
 - Python 3.8 or higher
 - AWS CLI configured with appropriate credentials
 - Required AWS permissions (see [Permissions](#permissions) section)
+- Amazon Quick Sight Enterprise edition or higher
 
 ### Clone from source
 
@@ -326,7 +331,7 @@ Lambda Error: Task timed out after 15.00 seconds
 
 The tool requires the following AWS IAM permissions:
 
-### QuickSight Permissions
+### Quick Sight Permissions
 
 ```json
 {
@@ -404,7 +409,7 @@ The tool requires the following AWS IAM permissions:
 
 ### Historical Backup Preservation
 
-The tool automatically creates date-prefixed DynamoDB table names to preserve historical backups. Each backup run creates new tables with the current date as a prefix, ensuring that previous backups are never overwritten.
+The tool automatically creates date-prefixed DynamoDB table names to preserve historical backups. Each backup run creates new tables with the current date as a prefix, so that previous backups are never overwritten.
 
 #### Table Naming Convention
 
@@ -431,7 +436,7 @@ s3:
   prefix_format: "YYYY/MM/DD"  # Can be YYYY/MM/DD, YYYY-MM-DD, or YYYYMMDD
 ```
 
-All formats are converted to `YYYY-MM-DD` for DynamoDB table names to ensure:
+All formats are converted to `YYYY-MM-DD` for DynamoDB table names so they have:
 - No special characters (like `/`) that are invalid in table names
 - Consistent naming across all backup runs
 - Proper sorting and organization of historical backups
@@ -588,7 +593,7 @@ quicksight-backup --config config.yaml
 # Error: Configuration file does not exist: config.yaml
 ```
 
-**Solution**: Ensure the configuration file path is correct and the file exists.
+**Solution**: Check the configuration file path is correct and the file exists.
 
 **Error**: `Configuration file must be YAML or JSON`
 ```bash
@@ -600,39 +605,28 @@ quicksight-backup --config config.txt
 
 #### 2. AWS Credentials Issues
 
-**Error**: `Unable to locate credentials`
-```
-AWS Credentials Error: Unable to locate credentials. You can configure credentials by running "aws configure".
-```
-
-**Solutions**:
-- Run `aws configure` to set up credentials
-- Set environment variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
-- Use IAM roles if running on EC2/Lambda
-- Configure AWS profiles: `aws configure --profile myprofile`
-
 **Error**: `Access Denied`
 ```
 AWS Credentials Error: An error occurred (AccessDenied) when calling the ListUsers operation
 ```
 
-**Solution**: Ensure your AWS credentials have the required permissions (see [Permissions](#permissions) section).
+**Solution**: Verify that your AWS credentials have the required permissions (see [Permissions](#permissions) section).
 
-#### 3. QuickSight API Issues
+#### 3. Quick Sight API Issues
 
-**Error**: `User is not registered in QuickSight`
+**Error**: `User is not registered in Quick Sight`
 ```
-QuickSight Error: User: arn:aws:iam::123456789012:user/myuser is not registered in QuickSight
+Quick Sight Error: User: arn:aws:iam::123456789012:user/myuser is not registered in Quick Sight
 ```
 
-**Solution**: Register the user in QuickSight or use credentials for a registered QuickSight user.
+**Solution**: Register the user in Quick Sight or use credentials for a registered Quick Sight user.
 
 **Error**: `Rate exceeded`
 ```
-QuickSight Error: Rate exceeded for operation: ListUsers
+Quick Sight Error: Rate exceeded for operation: ListUsers
 ```
 
-**Solution**: The tool automatically handles rate limiting with exponential backoff. If this persists, try running during off-peak hours.
+**Solution**: The is designed to include automatic rate limiting handling with exponential backoff. If this persists, try running during off-peak hours.
 
 #### 4. DynamoDB Issues
 
@@ -641,14 +635,14 @@ QuickSight Error: Rate exceeded for operation: ListUsers
 DynamoDB Error: Table already exists: quicksight-users-backup
 ```
 
-**Solution**: This is expected behavior. The tool will use the existing table. Ensure the table schema matches expectations.
+**Solution**: This is expected behavior. The tool will use the existing table. Check the table schema matches expectations.
 
 **Error**: `Requested resource not found`
 ```
 DynamoDB Error: Requested resource not found: Table: quicksight-users-backup not found
 ```
 
-**Solution**: The tool will automatically create the table. Ensure you have `dynamodb:CreateTable` permissions.
+**Solution**: The tool will automatically create the table. Verify that you have `dynamodb:CreateTable` permissions.
 
 **Error**: `Too many tables created`
 ```
@@ -664,14 +658,14 @@ DynamoDB Warning: Multiple date-prefixed tables detected for base table: quicksi
 S3 Error: The specified bucket does not exist: my-quicksight-backups
 ```
 
-**Solution**: Create the S3 bucket manually or ensure the bucket name is correct in your configuration.
+**Solution**: Create the S3 bucket manually or check the bucket name is correct in your configuration.
 
 **Error**: `Access Denied`
 ```
 S3 Error: An error occurred (AccessDenied) when calling the PutObject operation
 ```
 
-**Solution**: Ensure your AWS credentials have `s3:PutObject` permissions for the specified bucket.
+**Solution**: Verify that your AWS credentials have `s3:PutObject` permissions for the specified bucket.
 
 #### 6. Asset Bundle Export Issues
 
@@ -683,7 +677,7 @@ Asset Bundle Error: Export job failed with status: FAILED
 **Solutions**:
 - Check if the assets exist and are accessible
 - Verify that FILE datasets are properly excluded
-- Ensure assets don't have circular dependencies
+- Check assets don't have circular dependencies
 - Check CloudTrail logs for detailed error information
 
 **Error**: `No assets found to export`

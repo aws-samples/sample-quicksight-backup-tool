@@ -4,7 +4,7 @@
 # AWS Configuration
 aws:
   region: us-east-1                    # Your AWS region for assets (datasources, datasets, analyses, dashboards)
-  identity_region: us-east-1           # Region for Quick Sight users and groups (optional, defaults to region)
+  identity_region: us-east-1           # Region for Amazon Quick Sight users and groups (optional, defaults to region)
   account_id: "123456789012"           # Your AWS account ID (12-digit string)
 
 # DynamoDB Configuration

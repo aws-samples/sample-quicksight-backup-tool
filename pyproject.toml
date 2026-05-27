@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "quicksight-backup-tool"
 dynamic = ["version"]
-description = "A comprehensive backup solution for Amazon QuickSight resources including users, groups, and asset bundles"
+description = "A comprehensive backup solution for Amazon Quick Sight resources including users, groups, and asset bundles"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [

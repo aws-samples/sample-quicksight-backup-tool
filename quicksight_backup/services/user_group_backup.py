@@ -1,5 +1,5 @@
 """
-Service for backing up QuickSight users and groups.
+Service for backing up Quick Sight users and groups.
 """
 
 import logging
@@ -27,7 +27,7 @@ from quicksight_backup.services.base import BaseBackupService
 
 
 class UserGroupBackupService(BaseBackupService):
-    """Service for backing up QuickSight users and groups to DynamoDB."""
+    """Service for backing up Quick Sight users and groups to DynamoDB."""
     
     def __init__(self, config: BackupConfig):
         super().__init__(config)
@@ -114,7 +114,7 @@ class UserGroupBackupService(BaseBackupService):
     
     def backup_users(self) -> BackupResult:
         """
-        Backup QuickSight users to DynamoDB.
+        Backup Quick Sight users to DynamoDB.
         
         Returns:
             BackupResult: Result of user backup operation
@@ -130,9 +130,9 @@ class UserGroupBackupService(BaseBackupService):
         try:
             self.logger.info("Starting user backup operation")
             
-            # Get all users from QuickSight
+            # Get all users from Quick Sight
             users_data = self.get_user_list()
-            self.logger.info(f"Retrieved {len(users_data)} users from QuickSight")
+            self.logger.info(f"Retrieved {len(users_data)} users from Quick Sight")
             
             # Transform to User objects
             users = transform_users_from_api_response(users_data)
@@ -147,8 +147,8 @@ class UserGroupBackupService(BaseBackupService):
                 result.add_error("Failed to store users to DynamoDB")
                 
         except QuickSightAPIError as e:
-            self.logger.error(f"QuickSight API error during user backup: {str(e)}")
-            result.add_error(f"QuickSight API error: {str(e)}")
+            self.logger.error(f"Quick Sight API error during user backup: {str(e)}")
+            result.add_error(f"Quick Sight API error: {str(e)}")
         except DynamoDBError as e:
             self.logger.error(f"DynamoDB error during user backup: {str(e)}")
             result.add_error(f"DynamoDB error: {str(e)}")
@@ -161,7 +161,7 @@ class UserGroupBackupService(BaseBackupService):
     
     def backup_groups(self) -> BackupResult:
         """
-        Backup QuickSight groups to DynamoDB.
+        Backup Quick Sight groups to DynamoDB.
         
         Returns:
             BackupResult: Result of group backup operation
@@ -177,9 +177,9 @@ class UserGroupBackupService(BaseBackupService):
         try:
             self.logger.info("Starting group backup operation")
             
-            # Get all groups from QuickSight
+            # Get all groups from Quick Sight
             groups_data = self.get_group_list()
-            self.logger.info(f"Retrieved {len(groups_data)} groups from QuickSight")
+            self.logger.info(f"Retrieved {len(groups_data)} groups from Quick Sight")
             
             # Get group memberships
             group_members = self._get_group_memberships(groups_data)
@@ -197,8 +197,8 @@ class UserGroupBackupService(BaseBackupService):
                 result.add_error("Failed to store groups to DynamoDB")
                 
         except QuickSightAPIError as e:
-            self.logger.error(f"QuickSight API error during group backup: {str(e)}")
-            result.add_error(f"QuickSight API error: {str(e)}")
+            self.logger.error(f"Quick Sight API error during group backup: {str(e)}")
+            result.add_error(f"Quick Sight API error: {str(e)}")
         except DynamoDBError as e:
             self.logger.error(f"DynamoDB error during group backup: {str(e)}")
             result.add_error(f"DynamoDB error: {str(e)}")
@@ -211,7 +211,7 @@ class UserGroupBackupService(BaseBackupService):
     
     def backup_user_group_memberships(self) -> BackupResult:
         """
-        Backup QuickSight user-group memberships to DynamoDB.
+        Backup Quick Sight user-group memberships to DynamoDB.
         
         Returns:
             BackupResult: Result of user-group membership backup operation
@@ -227,7 +227,7 @@ class UserGroupBackupService(BaseBackupService):
         try:
             self.logger.info("Starting user-group membership backup operation")
             
-            # Get all users and groups from QuickSight
+            # Get all users and groups from Quick Sight
             users_data = self.get_user_list()
             groups_data = self.get_group_list()
             
@@ -253,8 +253,8 @@ class UserGroupBackupService(BaseBackupService):
                 result.add_error("Failed to store user-group memberships to DynamoDB")
                 
         except QuickSightAPIError as e:
-            self.logger.error(f"QuickSight API error during user-group membership backup: {str(e)}")
-            result.add_error(f"QuickSight API error: {str(e)}")
+            self.logger.error(f"Quick Sight API error during user-group membership backup: {str(e)}")
+            result.add_error(f"Quick Sight API error: {str(e)}")
         except DynamoDBError as e:
             self.logger.error(f"DynamoDB error during user-group membership backup: {str(e)}")
             result.add_error(f"DynamoDB error: {str(e)}")
@@ -267,10 +267,10 @@ class UserGroupBackupService(BaseBackupService):
     
     def get_user_list(self) -> List[Dict[str, Any]]:
         """
-        Retrieve all QuickSight users with pagination handling.
+        Retrieve all Quick Sight users with pagination handling.
         
         Returns:
-            List[Dict[str, Any]]: List of user dictionaries from QuickSight API
+            List[Dict[str, Any]]: List of user dictionaries from Quick Sight API
             
         Raises:
             QuickSightAPIError: If API call fails
@@ -315,10 +315,10 @@ class UserGroupBackupService(BaseBackupService):
     
     def get_group_list(self) -> List[Dict[str, Any]]:
         """
-        Retrieve all QuickSight groups with pagination handling.
+        Retrieve all Quick Sight groups with pagination handling.
         
         Returns:
-            List[Dict[str, Any]]: List of group dictionaries from QuickSight API
+            List[Dict[str, Any]]: List of group dictionaries from Quick Sight API
             
         Raises:
             QuickSightAPIError: If API call fails
@@ -366,7 +366,7 @@ class UserGroupBackupService(BaseBackupService):
         Get membership information for all groups.
         
         Args:
-            groups_data: List of group dictionaries from QuickSight API
+            groups_data: List of group dictionaries from Quick Sight API
             
         Returns:
             Dict[str, List[str]]: Dictionary mapping group names to member lists
@@ -609,7 +609,7 @@ class UserGroupBackupService(BaseBackupService):
             bool: True if all prerequisites are met
         """
         try:
-            # Test QuickSight access
+            # Test Quick Sight access
             quicksight = self.get_client('quicksight-admin')
             quicksight.list_users(
                 AwsAccountId=self.config.aws_account_id,
@@ -637,7 +637,7 @@ class UserGroupBackupService(BaseBackupService):
         Returns:
             AWS service client
         """
-        # Use identity_region for QuickSight operations, aws_region for others
+        # Use identity_region for Quick Sight operations, aws_region for others
         service = "quicksight"
 
         if service_name == 'quicksight-admin':

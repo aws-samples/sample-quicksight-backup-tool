@@ -1,6 +1,6 @@
 # Amazon Quick Sight Backup Tool - Configuration Examples
 
-This directory contains example configuration files for different deployment scenarios. Choose the configuration that best matches your environment and customize it according to your needs.
+This directory contains example configuration files for different deployment scenarios. Choose the configuration that most closely matches your environment and customize it according to your needs.
 
 ## Available Configurations
 
@@ -54,6 +54,16 @@ This directory contains example configuration files for different deployment sce
 - Template for dynamic configuration generation
 
 ## Quick Setup Guide
+
+### Prerequisites
+
+Before starting this guide, verify that you have:
+- Python 3.8 or higher installed
+- AWS CLI configured with appropriate credentials
+- Amazon Quick Sight Enterprise edition or higher
+- Required IAM permissions (see main README Permissions section)
+
+### Steps
 
 1. **Choose a configuration** that matches your deployment scenario
 2. **Copy the file** to your working directory:
@@ -164,7 +174,7 @@ This directory contains example configuration files for different deployment sce
    ```bash
    # Error: Configuration validation failed: Missing required parameter: aws.region
    ```
-   Solution: Ensure all required parameters are present
+   Solution: Verify that all required parameters are present
 
 3. **Invalid S3 Bucket Name**
    ```bash
