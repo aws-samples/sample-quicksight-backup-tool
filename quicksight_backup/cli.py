@@ -76,7 +76,7 @@ def validate_config_file(config_path: str) -> str:
     
     try:
         # Test if file is readable
-        with open(path, 'r') as f:
+        with open(path, 'r', encoding='utf-8') as f:
             f.read(1)
     except PermissionError:
         raise argparse.ArgumentTypeError(f"Configuration file is not readable: {config_path}")

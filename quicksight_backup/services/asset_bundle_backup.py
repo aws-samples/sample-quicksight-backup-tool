@@ -4,7 +4,7 @@ Asset bundle backup service for QuickSight resources.
 
 import boto3
 import logging
-import random
+import secrets
 import time
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -155,7 +155,7 @@ class AssetBundleBackupService(BaseBackupService):
             inventory.dashboards = self._list_dashboards()
             
         except Exception as e:
-            logger.error(f"Asset discovery failed: {str(e)}")
+            logger.warning(f"Asset discovery failed: {str(e)}")
             raise QuickSightBackupError(f"Failed to discover assets: {str(e)}")
         
         return inventory
@@ -235,7 +235,7 @@ class AssetBundleBackupService(BaseBackupService):
                         logger.debug(f"Found datasource: {datasource.get('Name', 'Unknown')}")
         
         except ClientError as e:
-            logger.error(f"Failed to list datasources: {str(e)}")
+            logger.warning(f"Failed to list datasources: {str(e)}")
             raise QuickSightBackupError(f"Failed to list datasources: {str(e)}")
         
         if skipped_count > 0:
@@ -866,7 +866,7 @@ class AssetBundleBackupService(BaseBackupService):
                         # Skipped item tracking is handled in _validate_dataset method
         
         except ClientError as e:
-            logger.error(f"Failed to list datasets: {str(e)}")
+            logger.warning(f"Failed to list datasets: {str(e)}")
             raise QuickSightBackupError(f"Failed to list datasets: {str(e)}")
         
         if skipped_count > 0:
@@ -893,7 +893,7 @@ class AssetBundleBackupService(BaseBackupService):
                         # Skipped item tracking is handled in _validate_analysis_or_dashboard method
         
         except ClientError as e:
-            logger.error(f"Failed to list analyses: {str(e)}")
+            logger.warning(f"Failed to list analyses: {str(e)}")
             raise QuickSightBackupError(f"Failed to list analyses: {str(e)}")
         
         if skipped_count > 0:
@@ -920,7 +920,7 @@ class AssetBundleBackupService(BaseBackupService):
                         # Skipped item tracking is handled in _validate_analysis_or_dashboard method
         
         except ClientError as e:
-            logger.error(f"Failed to list dashboards: {str(e)}")
+            logger.warning(f"Failed to list dashboards: {str(e)}")
             raise QuickSightBackupError(f"Failed to list dashboards: {str(e)}")
         
         if skipped_count > 0:
@@ -1032,8 +1032,8 @@ class AssetBundleBackupService(BaseBackupService):
                             if error_code == 'ThrottlingException' and attempt < max_retries:
                                 # Calculate exponential backoff delay with jitter
                                 delay = min(base_delay * (2 ** attempt), max_delay)
-                                # Add jitter (random factor between 0.5 and 1.5)
-                                jitter = random.uniform(0.5, 1.5)
+                                # Add jitter (cryptographically secure random factor between 0.5 and 1.5)
+                                jitter = 0.5 + (secrets.randbelow(1000) / 1000.0)
                                 actual_delay = delay * jitter
                                 
                                 logger.warning(f"Export job throttled, retrying in {actual_delay:.2f} seconds (attempt {attempt + 1}/{max_retries + 1})")
@@ -1088,12 +1088,20 @@ class AssetBundleBackupService(BaseBackupService):
         except ClientError as e:
             error_code = e.response['Error']['Code']
             error_message = e.response['Error']['Message']
-            logger.error(f"Failed to start export job: {error_code} - {error_message}")
+            logger.warning(f"Failed to start export job: {error_code} - {error_message}")
             raise QuickSightBackupError(f"Failed to start export job: {error_code} - {error_message}")
         
         # This should never be reached, but just in case
         raise QuickSightBackupError("Failed to start export job after all retry attempts")
     
+    def _wait_for_poll(self, interval: float) -> None:
+        """Wait between polling attempts for async job status checks.
+        
+        This intentional delay implements exponential backoff to avoid
+        overwhelming the AWS API with status check requests.
+        """
+        time.sleep(interval)
+
     def poll_export_job(self, job_id: str, max_wait_time: int = 1200) -> Dict[str, Any]:
         """Poll export job until completion or timeout."""
         start_time = time.time()
@@ -1117,15 +1125,15 @@ class AssetBundleBackupService(BaseBackupService):
                     return response
                 
                 elif job_status in ['QUEUED_FOR_IMMEDIATE_EXECUTION', 'IN_PROGRESS']:
-                    # Continue polling
-                    time.sleep(poll_interval)
+                    # Continue polling with backoff
+                    self._wait_for_poll(poll_interval)
                     logger.info(f"Export job {job_id} is running with status: {job_status}")
                     # Gradually increase poll interval to reduce API calls
                     poll_interval = min(poll_interval * 1.2, max_poll_interval)
                 
                 else:
                     logger.warning(f"Unexpected job status: {job_status}")
-                    time.sleep(poll_interval)
+                    self._wait_for_poll(poll_interval)
             
             except ClientError as e:
                 error_code = e.response['Error']['Code']
@@ -1136,7 +1144,7 @@ class AssetBundleBackupService(BaseBackupService):
                     raise e
                 else:
                     logger.error(f"Error polling export job: {error_code}")
-                    time.sleep(poll_interval)
+                    self._wait_for_poll(poll_interval)
         
         # Timeout reached
         raise QuickSightBackupError(f"Export job {job_id} timed out after {max_wait_time} seconds")
@@ -1185,6 +1193,7 @@ class AssetBundleBackupService(BaseBackupService):
                     if chunk:
                         temp_file.write(chunk)
                 
+                temp_file.flush()
                 temp_file_path = temp_file.name
             
             # Get file size for logging

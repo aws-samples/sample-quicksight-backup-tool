@@ -16,7 +16,7 @@ def read_readme():
 # Read version from package
 def get_version():
     version_file = os.path.join('quicksight_backup', '__init__.py')
-    with open(version_file, 'r') as f:
+    with open(version_file, 'r', encoding='utf-8') as f:
         for line in f:
             if line.startswith('__version__'):
                 return line.split('=')[1].strip().strip('"').strip("'")

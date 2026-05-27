@@ -302,7 +302,7 @@ class LoggingService:
         output_file.parent.mkdir(parents=True, exist_ok=True)
         
         # Save report
-        with open(output_file, 'w') as f:
+        with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(report_data, f, indent=2, default=str)
             
         self.log_info(

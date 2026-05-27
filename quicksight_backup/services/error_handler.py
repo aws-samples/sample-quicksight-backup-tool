@@ -3,7 +3,7 @@ Error handling and retry logic for QuickSight backup operations.
 """
 
 import time
-import random
+import secrets
 import logging
 from typing import Callable, Any, Optional, Dict, Type, List, Tuple
 from functools import wraps
@@ -237,7 +237,8 @@ class ErrorHandler:
         # Add jitter if enabled
         if config.jitter:
             jitter_range = delay * 0.1  # 10% jitter
-            jitter = random.uniform(-jitter_range, jitter_range)
+            # Use cryptographically secure random for jitter
+            jitter = (secrets.randbelow(2000) - 1000) / 1000.0 * jitter_range
             delay += jitter
             
         return max(0, delay)
