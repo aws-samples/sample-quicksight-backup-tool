@@ -1,6 +1,6 @@
 # Amazon Quick Sight Backup Process Flow Diagram
 
-## Overview Flow Diagram
+## Overview Diagram
 
 ```mermaid
 flowchart TD
@@ -61,7 +61,7 @@ flowchart TD
     style HH fill:#e8f5e8
 ```
 
-## Detailed Error Handling Flow
+## Detailed Error Handling Process
 
 ```mermaid
 flowchart TD
@@ -100,7 +100,7 @@ flowchart TD
     style P fill:#fff3e0
 ```
 
-## Asset Discovery and Filtering Flow
+## Asset Discovery and Filtering Process
 
 ```mermaid
 flowchart TD
@@ -139,7 +139,7 @@ flowchart TD
     style V fill:#e8f5e8
 ```
 
-## S3 Upload Process Flow
+## S3 Upload Process
 
 ```mermaid
 flowchart TD
@@ -251,7 +251,7 @@ flowchart TD
 - **Log Files**: Generated based on configuration
 - **Progress Indicators**: Disabled in batch mode (`--no-progress`)
 
-## Flow Execution Times
+## Execution Times
 
 | Operation | Typical Duration | Factors Affecting Duration |
 |-----------|------------------|---------------------------|

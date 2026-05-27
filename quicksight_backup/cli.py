@@ -1,5 +1,5 @@
 """
-Command-line interface for QuickSight Backup Tool.
+Command-line interface for Amazon Quick Sight Backup Tool.
 """
 
 import argparse

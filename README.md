@@ -1,4 +1,4 @@
-# Quick Sight Backup Tool
+# Amazon Quick Sight Backup Tool
 
 A comprehensive backup solution for Amazon Quick Sight resources including users, groups, datasources, datasets, analyses, and dashboards.
 
@@ -19,7 +19,7 @@ This tool serves as a starting point and reference implementation. Production de
 
 ## Introduction
 
-Amazon Quick Sight does not provide a native backup mechanism for BI assets such as dashboards, analyses, datasets, and data sources. This means that accidental deletions or unintended modifications can result in permanent data loss. The Quick Sight Backup Tool addresses this gap by providing automated backup capabilities for your Amazon Quick Sight environment.
+Amazon Quick Sight does not provide a native backup mechanism for BI assets such as dashboards, analyses, datasets, and data sources. The Amazon Quick Sight Backup Tool addresses this gap by providing automated backup capabilities, enabling disaster recovery and migration scenarios for your Amazon Quick Sight environment.
 
 ## Overview
 
@@ -76,6 +76,8 @@ pip install -e ".[dev]"
 ```
 
 ## Quick Start
+
+> **Prerequisites**: Before starting, complete all items in the [Prerequisites](#prerequisites) section above, including Python 3.8+, AWS CLI configuration, required IAM permissions, and Amazon Quick Sight Enterprise edition.
 
 > **Cost Warning**: The resources configured in this tool incur AWS charges. DynamoDB tables are charged based on storage and read/write capacity. S3 buckets are charged for storage, requests, and data transfer. Monitor your AWS billing dashboard and set up billing alarms to avoid unexpected charges. See the [Cleanup](#cleanup-and-resource-deletion) section to delete resources when no longer needed.
 
@@ -593,7 +595,7 @@ quicksight-backup --config config.yaml
 # Error: Configuration file does not exist: config.yaml
 ```
 
-**Solution**: Check the configuration file path is correct and the file exists.
+**Solution**: Verify the configuration file path. Use an absolute path or ensure the relative path is correct from your current working directory.
 
 **Error**: `Configuration file must be YAML or JSON`
 ```bash
@@ -601,7 +603,7 @@ quicksight-backup --config config.txt
 # Error: Configuration file must be YAML or JSON: config.txt
 ```
 
-**Solution**: Use a `.yaml`, `.yml`, or `.json` file extension.
+**Solution**: The configuration file must use a YAML or JSON format. Rename your file with a `.yaml`, `.yml`, or `.json` extension.
 
 #### 2. AWS Credentials Issues
 

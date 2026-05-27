@@ -1,4 +1,4 @@
-# Contributing Guidelines
+# Contributing to the Amazon Quick Sight Backup Tool
 
 Thank you for your interest in contributing to this project. Whether it's a bug report, new feature, correction, or additional
 documentation, feedback and contributions from the community are greatly valued.

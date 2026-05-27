@@ -1,7 +1,7 @@
 """
-Command-line interface for Quick Sight Backup Tool.
+Command-line interface for Amazon Quick Sight Backup Tool.
 
-This script provides a direct entry point for the Quick Sight Backup Tool.
+This script provides a direct entry point for the Amazon Quick Sight Backup Tool.
 It delegates to the main CLI module in the package.
 """
 
