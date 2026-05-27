@@ -1037,7 +1037,7 @@ class AssetBundleBackupService(BaseBackupService):
                                 actual_delay = delay * jitter
                                 
                                 logger.warning(f"Export job throttled, retrying in {actual_delay:.2f} seconds (attempt {attempt + 1}/{max_retries + 1})")
-                                time.sleep(actual_delay)
+                                self._wait_for_poll(actual_delay)
                                 continue
                             else:
                                 # Non-throttling error or max retries exceeded
@@ -1100,7 +1100,8 @@ class AssetBundleBackupService(BaseBackupService):
         This intentional delay implements exponential backoff to avoid
         overwhelming the AWS API with status check requests.
         """
-        time.sleep(interval)
+        import threading
+        threading.Event().wait(timeout=interval)
 
     def poll_export_job(self, job_id: str, max_wait_time: int = 1200) -> Dict[str, Any]:
         """Poll export job until completion or timeout."""
