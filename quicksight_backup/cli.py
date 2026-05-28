@@ -95,7 +95,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog='quicksight-backup',
-        description='QuickSight Backup Tool - Backup QuickSight resources to DynamoDB and S3',
+        description='Amazon Quick Sight Backup Tool - Backup Quick Sight resources to DynamoDB and S3',
         epilog='''
 Examples:
   %(prog)s --config config.yaml
@@ -192,7 +192,7 @@ def run_backup(args: argparse.Namespace) -> int:
     
     try:
         # Initialize orchestrator
-        logger.info(f"Initializing QuickSight Backup Tool with args: {args}")
+        logger.info(f"Initializing Amazon Quick Sight Backup Tool with args: {args}")
         orchestrator = QuickSightBackupOrchestrator(args)
         
         # Initialize services

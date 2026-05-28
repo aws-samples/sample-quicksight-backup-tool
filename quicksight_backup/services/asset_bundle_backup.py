@@ -1,5 +1,5 @@
 """
-Asset bundle backup service for Quick Sight resources.
+Asset bundle backup service for Amazon Quick Sight resources.
 """
 
 import boto3
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class AssetBundleBackupService(BaseBackupService):
-    """Service for backing up Quick Sight assets using AssetBundle APIs."""
+    """Service for backing up Amazon Quick Sight assets using AssetBundle APIs."""
     
     def __init__(self, config: BackupConfig):
         super().__init__(config)

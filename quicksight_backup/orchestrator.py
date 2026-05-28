@@ -287,7 +287,7 @@ class QuickSightBackupOrchestrator:
             Dict[str, Any]: Backup manifest data
         """
         if not self.backup_report:
-            raise QuickSightBackupError("No backup report available. Execute backup first.")
+            raise QuickSightBackupError("No backup report available. Run backup first.")
         
         manifest = {
             'backup_metadata': {
@@ -374,11 +374,11 @@ class QuickSightBackupOrchestrator:
             str: Formatted backup report summary
         """
         if not self.backup_report:
-            raise QuickSightBackupError("No backup report available. Execute backup first.")
+            raise QuickSightBackupError("No backup report available. Run backup first.")
         
         report_lines = [
             "=" * 60,
-            "Quick Sight Backup Report Summary",
+            "Amazon Quick Sight Backup Report Summary",
             "=" * 60,
             f"Backup Date: {self.backup_report.start_time.strftime('%Y-%m-%d %H:%M:%S')}",
             f"AWS Account: {self.config.aws_account_id}",
@@ -461,7 +461,7 @@ class QuickSightBackupOrchestrator:
             Dict[str, Any]: Backup statistics
         """
         if not self.backup_report:
-            raise QuickSightBackupError("No backup report available. Execute backup first.")
+            raise QuickSightBackupError("No backup report available. Run backup first.")
         
         statistics = {
             'timestamp': self.backup_report.end_time.isoformat(),

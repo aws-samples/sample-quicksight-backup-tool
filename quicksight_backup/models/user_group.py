@@ -1,5 +1,5 @@
 """
-Data models for QuickSight users and groups.
+Data models for Amazon Quick Sight users and groups.
 """
 
 from dataclasses import dataclass, field
@@ -9,13 +9,13 @@ from enum import Enum
 
 
 class IdentityType(Enum):
-    """QuickSight identity types."""
+    """Quick Sight identity types."""
     IAM = "IAM"
     QUICKSIGHT = "QUICKSIGHT"
 
 
 class UserRole(Enum):
-    """QuickSight user roles."""
+    """Quick Sight user roles."""
     ADMIN = "ADMIN"
     AUTHOR = "AUTHOR"
     READER = "READER"
@@ -25,7 +25,7 @@ class UserRole(Enum):
 
 @dataclass
 class User:
-    """QuickSight user data model."""
+    """Quick Sight user data model."""
     
     user_name: str
     arn: str
@@ -43,10 +43,10 @@ class User:
     @classmethod
     def from_quicksight_api(cls, api_response: Dict[str, Any]) -> 'User':
         """
-        Create User instance from QuickSight API response.
+        Create User instance from Quick Sight API response.
         
         Args:
-            api_response: Dictionary from QuickSight ListUsers API response
+            api_response: Dictionary from Quick Sight ListUsers API response
             
         Returns:
             User: User instance with populated fields
@@ -131,7 +131,7 @@ class User:
 
 @dataclass
 class Group:
-    """QuickSight group data model."""
+    """Quick Sight group data model."""
     
     group_name: str
     arn: str
@@ -143,10 +143,10 @@ class Group:
     @classmethod
     def from_quicksight_api(cls, api_response: Dict[str, Any], members: Optional[List[str]] = None) -> 'Group':
         """
-        Create Group instance from QuickSight API response.
+        Create Group instance from Quick Sight API response.
         
         Args:
-            api_response: Dictionary from QuickSight ListGroups API response
+            api_response: Dictionary from Quick Sight ListGroups API response
             members: List of member usernames (from separate API call)
             
         Returns:
@@ -208,7 +208,7 @@ class Group:
 
 @dataclass
 class UserGroupMembership:
-    """QuickSight user-group membership relationship data model."""
+    """Quick Sight user-group membership relationship data model."""
     
     membership_id: str
     user_name: str
@@ -280,10 +280,10 @@ class UserGroupMembership:
 
 def transform_users_from_api_response(api_users: List[Dict[str, Any]]) -> List[User]:
     """
-    Transform list of QuickSight API user responses to User objects.
+    Transform list of Quick Sight API user responses to User objects.
     
     Args:
-        api_users: List of user dictionaries from QuickSight API
+        api_users: List of user dictionaries from Quick Sight API
         
     Returns:
         List[User]: List of User objects
@@ -294,10 +294,10 @@ def transform_users_from_api_response(api_users: List[Dict[str, Any]]) -> List[U
 def transform_groups_from_api_response(api_groups: List[Dict[str, Any]], 
                                      group_members: Optional[Dict[str, List[str]]] = None) -> List[Group]:
     """
-    Transform list of QuickSight API group responses to Group objects.
+    Transform list of Quick Sight API group responses to Group objects.
     
     Args:
-        api_groups: List of group dictionaries from QuickSight API
+        api_groups: List of group dictionaries from Quick Sight API
         group_members: Optional dictionary mapping group names to member lists
         
     Returns:

@@ -1,5 +1,5 @@
 """
-Comprehensive logging service for QuickSight backup operations.
+Comprehensive logging service for Amazon Quick Sight backup operations.
 """
 
 import logging
@@ -121,7 +121,7 @@ class ProgressTracker:
 
 
 class LoggingService:
-    """Comprehensive logging service for QuickSight backup operations."""
+    """Comprehensive logging service for Amazon Quick Sight backup operations."""
     
     def __init__(self, config: BackupConfig):
         """
