@@ -79,7 +79,7 @@ pip install -e ".[dev]"
 
 > **Prerequisites**: Before starting, complete all items in the [Prerequisites](#prerequisites) section above, including Python 3.8+, AWS CLI configuration, required IAM permissions, and Amazon Quick Sight Enterprise edition.
 
-> **Cost Warning**: The resources configured in this tool incur AWS charges. DynamoDB tables are charged based on storage and read/write capacity. S3 buckets are charged for storage, requests, and data transfer. Monitor your AWS billing dashboard and set up billing alarms to avoid unexpected charges. See the [Cleanup](#cleanup-and-resource-deletion) section to delete resources when no longer needed.
+> **Cost information**: This tool creates DynamoDB tables and S3 objects that incur AWS charges based on storage and usage. For pricing details, see the [DynamoDB pricing](https://aws.amazon.com/dynamodb/pricing/) and [S3 pricing](https://aws.amazon.com/s3/pricing/) pages. To track costs, configure billing alerts in the AWS Billing console. See the [Cleanup](#cleanup-and-resource-deletion) section to delete resources when no longer needed.
 
 1. **Create a configuration file** (see [Configuration](#configuration) section):
 
@@ -279,19 +279,10 @@ The `max_assets_per_bundle` parameter controls how many assets are included in e
 
 #### Performance Considerations
 
-**Smaller Bundles (1-25 assets):**
-- ✅ Faster export job completion
-- ✅ Lower memory usage
-- ✅ Better error isolation
-- ❌ More API calls and S3 objects
-- ❌ Increased backup time for large environments
-
-**Larger Bundles (50-100 assets):**
-- ✅ Fewer API calls and S3 objects
-- ✅ Faster overall backup for large environments
-- ❌ Longer export job times
-- ❌ Higher memory usage
-- ❌ Larger blast radius for failures
+| Bundle Size | Advantages | Disadvantages |
+|-------------|------------|---------------|
+| Smaller (1-25 assets) | Faster export job completion, Lower memory usage, Better error isolation | More API calls and S3 objects, Increased backup time for large environments |
+| Larger (50-100 assets) | Fewer API calls and S3 objects, Faster overall backup for large environments | Longer export job times, Higher memory usage, Larger blast radius for failures |
 
 #### Bundle Size Guidelines
 
@@ -372,9 +363,9 @@ The tool requires the following AWS IAM permissions:
         "dynamodb:DescribeTable"
       ],
       "Resource": [
-        "arn:aws:dynamodb:*:*:table/*quicksight-users-backup*",
-        "arn:aws:dynamodb:*:*:table/*quicksight-groups-backup*",
-        "arn:aws:dynamodb:*:*:table/*quicksight-users-groups-backup*"
+        "arn:aws:dynamodb:us-east-1:123456789012:table/*-quicksight-users-backup",
+        "arn:aws:dynamodb:us-east-1:123456789012:table/*-quicksight-groups-backup",
+        "arn:aws:dynamodb:us-east-1:123456789012:table/*-quicksight-users-groups-backup"
       ]
     }
   ]
@@ -394,7 +385,7 @@ The tool requires the following AWS IAM permissions:
         "s3:PutObjectAcl",
         "s3:GetObject"
       ],
-      "Resource": "arn:aws:s3:::my-quicksight-backups/*"
+      "Resource": "arn:aws:s3:::my-quicksight-backups/quicksight-backups/*"
     },
     {
       "Effect": "Allow",
@@ -445,7 +436,7 @@ All formats are converted to `YYYY-MM-DD` for DynamoDB table names so they have:
 
 #### Table Management
 
-**Important**: Each backup run creates new DynamoDB tables that incur ongoing storage charges. S3 backup bundles also accrue storage costs. Without cleanup, costs will continue to grow with each backup. Implement a cleanup policy to delete old backups and control costs:
+**Important**: Each backup run creates new DynamoDB tables and S3 objects. To manage storage costs, establish a retention policy that deletes backups older than your required retention period:
 
 ```bash
 # Example: List all backup tables
@@ -581,7 +572,7 @@ aws s3 ls | grep quicksight-backups
 
 ### Cost Impact
 
-Backup resources incur ongoing charges until deleted. DynamoDB tables and S3 storage accrue costs daily. Implement a retention policy to automatically delete old backups and control costs.
+DynamoDB tables and S3 storage incur charges based on AWS pricing. Delete resources when backups are no longer needed.
 
 ## Troubleshooting
 

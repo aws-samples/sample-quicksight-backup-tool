@@ -162,7 +162,7 @@ class QuickSightBackupOrchestrator:
         try:
             self.logging_service.log_info("Starting user and group backup")
             
-            # Execute backup
+            # Run backup
             result = self.user_group_service.backup()
             
             # Log result
@@ -209,7 +209,7 @@ class QuickSightBackupOrchestrator:
         try:
             self.logging_service.log_info("Starting asset bundle backup")
             
-            # Execute backup
+            # Run backup
             result = self.asset_bundle_service.backup()
             
             # Log result

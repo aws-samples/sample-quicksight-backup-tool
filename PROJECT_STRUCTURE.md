@@ -1,5 +1,7 @@
 # Amazon Quick Sight Backup Tool - Project Structure
 
+This document describes the directory layout and organization of the Amazon Quick Sight Backup Tool project. It provides an overview of the main components, their responsibilities, and how they work together to deliver backup functionality.
+
 ## Directory Structure
 
 ```
@@ -25,6 +27,8 @@ quicksight-backup-tool/
 ```
 
 ## Core Components
+
+The tool is organized into three main packages, each with specific responsibilities for configuration management, backup operations, and error handling.
 
 ### Models Package (`quicksight_backup/models/`)
 - **config.py**: `BackupConfig` dataclass for configuration management

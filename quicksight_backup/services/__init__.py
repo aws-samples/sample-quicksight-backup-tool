@@ -1,5 +1,5 @@
 """
-Service classes for QuickSight backup operations.
+Service classes for Amazon Quick Sight backup operations.
 """
 
 from .base import BaseBackupService, BaseConfigurationManager, BaseErrorHandler

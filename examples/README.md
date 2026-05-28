@@ -4,6 +4,8 @@ This directory contains example configuration files for different deployment sce
 
 ## Available Configurations
 
+The following configuration templates cover different deployment scenarios, from basic testing to enterprise production. Each is optimized for specific use cases and includes relevant comments and guidance.
+
 ### 1. Basic Configuration (`config-basic.yaml`)
 **Use Case**: Getting started, small environments, testing
 - Minimal required settings

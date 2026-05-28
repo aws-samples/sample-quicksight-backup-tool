@@ -464,7 +464,7 @@ class UserGroupBackupService(BaseBackupService):
                     ]
                 }
                 
-                # Execute batch write with retry logic
+                # Run batch write with retry logic
                 self._execute_batch_write_with_retry(request_items)
                 
                 self.logger.debug(f"Completed batch {batch_num}/{total_batches} for users")
@@ -525,7 +525,7 @@ class UserGroupBackupService(BaseBackupService):
                     ]
                 }
                 
-                # Execute batch write with retry logic
+                # Run batch write with retry logic
                 self._execute_batch_write_with_retry(request_items)
                 
                 self.logger.debug(f"Completed batch {batch_num}/{total_batches} for groups")
@@ -586,7 +586,7 @@ class UserGroupBackupService(BaseBackupService):
                     ]
                 }
                 
-                # Execute batch write with retry logic
+                # Run batch write with retry logic
                 self._execute_batch_write_with_retry(request_items)
                 
                 self.logger.debug(f"Completed batch {batch_num}/{total_batches} for user-group memberships")

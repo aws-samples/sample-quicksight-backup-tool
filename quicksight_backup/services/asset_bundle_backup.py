@@ -71,7 +71,7 @@ class AssetBundleBackupService(BaseBackupService):
         return session.client(service)
     
     def backup(self) -> BackupResult:
-        """Execute asset bundle backup operation."""
+        """Run asset bundle backup operation."""
         start_time = time.time()
         result = BackupResult(
             resource_type="asset_bundles",
@@ -1181,7 +1181,7 @@ class AssetBundleBackupService(BaseBackupService):
         
         temp_file = None
         try:
-            logger.info(f"Downloading asset bundle from QuickSight...")
+            logger.info(f"Downloading asset bundle from Quick Sight...")
             
             # Download the asset bundle
             response = requests.get(download_url, stream=True, timeout=300)
