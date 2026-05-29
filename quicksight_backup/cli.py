@@ -207,7 +207,7 @@ def run_backup(args: argparse.Namespace) -> int:
             print("✓ Configuration file is valid")
             print("✓ AWS connectivity validated")
             print("✓ All prerequisites met")
-            print("Dry run completed successfully. Use --mode to execute actual backup.")
+            print("Dry run completed successfully. Use --mode to run actual backup.")
             return 0
         
         # Run backup based on mode

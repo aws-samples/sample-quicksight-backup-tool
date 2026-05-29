@@ -65,7 +65,7 @@ class UserGroupBackupService(BaseBackupService):
         
     def backup(self) -> BackupResult:
         """
-        Execute backup of both users and groups.
+        Run backup of both users and groups.
         
         Returns:
             BackupResult: Combined result of user and group backup operations

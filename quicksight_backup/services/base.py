@@ -17,7 +17,7 @@ class BaseBackupService(ABC):
     
     @abstractmethod
     def backup(self) -> BackupResult:
-        """Execute the backup operation for this service."""
+        """Run the backup operation for this service."""
         pass
     
     @abstractmethod

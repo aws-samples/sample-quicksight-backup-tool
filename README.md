@@ -27,7 +27,7 @@ The Quick Sight Backup Tool provides automated backup capabilities for your Amaz
 
 ## Features
 
-- **Complete Resource Coverage**: Backup users, groups, datasources, datasets, analyses, and dashboards
+- **Comprehensive Resource Coverage**: Backup users, groups, datasources, datasets, analyses, and dashboards
 - **Dual Storage Strategy**: DynamoDB for user/group metadata, S3 for asset bundles
 - **Flexible Backup Modes**: Full backup, users-only, or assets-only
 - **Configurable Bundle Sizing**: Control asset bundle sizes (1-100 assets per bundle) for optimal performance
@@ -79,7 +79,7 @@ pip install -e ".[dev]"
 
 > **Prerequisites**: Before starting, complete all items in the [Prerequisites](#prerequisites) section above, including Python 3.8+, AWS CLI configuration, required IAM permissions, and Amazon Quick Sight Enterprise edition.
 
-> **Cost information**: This tool creates DynamoDB tables and S3 objects that incur AWS charges based on storage and usage. For pricing details, see the [DynamoDB pricing](https://aws.amazon.com/dynamodb/pricing/) and [S3 pricing](https://aws.amazon.com/s3/pricing/) pages. To track costs, configure billing alerts in the AWS Billing console. See the [Cleanup](#cleanup-and-resource-deletion) section to delete resources when no longer needed.
+> **Cost information**: This tool creates Amazon DynamoDB tables and Amazon S3 objects that incur AWS charges based on storage and usage. For pricing details, see the [Amazon DynamoDB pricing](https://aws.amazon.com/dynamodb/pricing/) and [Amazon S3 pricing](https://aws.amazon.com/s3/pricing/) pages. To track costs, configure billing alerts in the AWS Billing console. See the [Cleanup](#cleanup-and-resource-deletion) section to delete resources when no longer needed.
 
 1. **Create a configuration file** (see [Configuration](#configuration) section):
 
@@ -586,7 +586,7 @@ quicksight-backup --config config.yaml
 # Error: Configuration file does not exist: config.yaml
 ```
 
-**Solution**: Verify the configuration file path. Use an absolute path or ensure the relative path is correct from your current working directory.
+**Solution**: Verify the configuration file path. Use an absolute path or verify that the relative path is correct from your current working directory.
 
 **Error**: `Configuration file must be YAML or JSON`
 ```bash
@@ -797,3 +797,8 @@ See [CHANGELOG.md](CHANGELOG.md) for a list of changes and version history.
 - **Documentation**: [GitHub Wiki](https://github.com/quicksight-backup/quicksight-backup-tool/wiki)
 - **Issues**: [GitHub Issues](https://github.com/quicksight-backup/quicksight-backup-tool/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/quicksight-backup/quicksight-backup-tool/discussions)
+
+
+## Conclusion
+
+The Amazon Quick Sight Backup Tool provides comprehensive backup capabilities for your Quick Sight environment, enabling disaster recovery and migration scenarios. With flexible backup modes, robust error handling, and automated organization of backups, the tool helps protect your BI assets and maintain business continuity. Get started by following the Quick Start guide above and adapt the configuration to meet your specific requirements.
