@@ -1,0 +1,45 @@
+# Safe in-place restore example. Use a non-production account first.
+source_backup:
+  s3_bucket_name: my-quicksight-backups
+  s3_prefix: quicksight-backups
+  backup_date: "2026-08-17"
+  # Prefer the exact keys from one reviewed Part 1 run. Date-only discovery is
+  # accepted only when that date contains a single ZIP object.
+  # bundle_keys:
+  #   - quicksight-backups/2026/08/17/datasources/datasources_bundle_1-010101.zip
+  #   - quicksight-backups/2026/08/17/datasets/datasets_bundle_1-010102.zip
+  date_prefix_format: YYYY/MM/DD
+  s3_region: us-east-1
+  dynamodb_region: us-east-1
+  auth:
+    profile: source-backup-readonly
+    # role_arn: arn:aws:iam::111111111111:role/QuickSightBackupReadRole
+  identity_tables:
+    users: quicksight-users-backup
+    groups: quicksight-groups-backup
+    memberships: quicksight-users-groups-backup
+
+target:
+  aws_account_id: "222222222222"
+  asset_region: us-east-1
+  identity_region: us-east-1
+  namespace: default
+  auth:
+    profile: target-restore
+    # role_arn: arn:aws:iam::222222222222:role/QuickSightRestoreRole
+
+restore:
+  mode: full
+  conflict_policy: update
+  failure_action: ROLLBACK
+  continue_on_error: false
+  restore_identities: true
+  poll_timeout_seconds: 1200
+  report_directory: ./restore-reports
+  validate_target_principals: true
+  target_principals:
+    - arn:aws:quicksight:us-east-1:222222222222:group/default/bi-admins
+  identity_mappings: []
+  # Use only API-native StartAssetBundleImportJob fields in this JSON file.
+  # Store credential material in approved target services such as Secrets Manager.
+  # overrides_file: ./restore-overrides.json

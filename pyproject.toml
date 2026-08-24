@@ -71,6 +71,7 @@ Funding = "https://example.com/quicksight-backup-tool/sponsors"
 
 [project.scripts]
 quicksight-backup = "quicksight_backup.cli:main"
+quicksight-restore = "quicksight_restore.cli:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "quicksight_backup.__version__"}
@@ -142,7 +143,7 @@ markers = [
 
 # Coverage configuration
 [tool.coverage.run]
-source = ["quicksight_backup"]
+source = ["quicksight_backup", "quicksight_restore"]
 omit = [
     "*/tests/*",
     "*/test_*",

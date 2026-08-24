@@ -78,6 +78,7 @@ setup(
     entry_points={
         "console_scripts": [
             "quicksight-backup=quicksight_backup.cli:main",
+            "quicksight-restore=quicksight_restore.cli:main",
         ],
     },
     include_package_data=True,

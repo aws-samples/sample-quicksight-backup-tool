@@ -124,3 +124,8 @@ Thumbs.db
 *.swo
 *~
 .scanresults/*
+
+# Local account-specific Part 2 end-to-end fixture and generated state
+/scripts/_p2e2e_runtime/
+/scripts/_provision_p2e2e_fixture.py
+/scripts/_run_p2e2e_backup_restore.py

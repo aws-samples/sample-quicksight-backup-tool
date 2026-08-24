@@ -802,3 +802,34 @@ See [CHANGELOG.md](CHANGELOG.md) for a list of changes and version history.
 ## Conclusion
 
 The Amazon Quick Sight Backup Tool provides comprehensive backup capabilities for your Quick Sight environment, enabling disaster recovery and migration scenarios. With flexible backup modes, robust error handling, and automated organization of backups, the tool helps protect your BI assets and maintain business continuity. Get started by following the Quick Start guide above and adapt the configuration to meet your specific requirements.
+
+## Restore (Part 2 P0)
+
+Restore is exposed as a separate command, so the existing `quicksight-backup` CLI and configuration remain unchanged. Start with `examples/restore-in-place.yaml`, select every reviewed legacy S3 object by its exact key, and review the generated plan before execution:
+
+```text
+quicksight-restore plan --config examples/restore-in-place.yaml --bundle-key S3_OBJECT_KEY_1 --bundle-key S3_OBJECT_KEY_2 --output restore-plan.json
+quicksight-restore run --config examples/restore-in-place.yaml --plan restore-plan.json --bundle-key S3_OBJECT_KEY_1 --bundle-key S3_OBJECT_KEY_2
+quicksight-restore status --config examples/restore-in-place.yaml --restore-id RESTORE_ID
+quicksight-restore status --report-directory ./restore-reports --restore-id RESTORE_ID
+```
+
+Replace the key placeholders with full object keys as shown by S3 or the backup logs. When selectors are supplied on the command line, repeat the identical `--backup-date` and `--bundle-key` values for both `plan` and `run` so execution can reproduce the reviewed configuration snapshot; alternatively, persist them in `source_backup` and omit the CLI selector flags. Date-only discovery (`--backup-date`, or `source_backup.backup_date` without explicit keys) is a convenience for dates containing exactly one ZIP object. Normal Part 1 runs can produce several ZIPs; an ambiguous date is rejected rather than guessed, so use repeated `--bundle-key` options or `source_backup.bundle_keys` for those runs.
+
+The config-backed status form resolves `restore.report_directory` relative to the configuration file. The direct form is local-only and resolves a relative report directory from the current working directory; it does not initialize AWS clients. Status exits are `0` for success, `1` for failed, `2` for partial, `3` for a valid running checkpoint, and `4` when the report cannot be read or verified.
+
+`plan` performs source and target read-only discovery, validates exact S3 versions/sizes/SHA-256 checksums and ZIP structure, inventories and deduplicates members, detects target conflicts, validates principals and API-native overrides, and persists a digest-protected plan. `run` verifies that plan and every selected source object before the first target mutation, optionally restores supported identities, imports the original verified bundle bytes in dependency order, and writes an atomic JSON report under `restore.report_directory`.
+
+### Restore security and limitations
+
+- Use the default AWS credential chain, named profiles, or STS AssumeRole. Restore configuration does not accept access keys, session tokens, passwords, or credential pairs. Store data-source secrets in an approved target service such as AWS Secrets Manager and reference only supported API-native values.
+- Asset restore accepts native `QUICKSIGHT_JSON` archives only. Each selected bundle must be no larger than 20 MiB because the original verified bytes are sent through `StartAssetBundleImportJob`'s inline body; this version does not rewrite, recompress, or stage bundles in target-owned S3.
+- Quick Sight-managed users can be registered. IAM users require a reviewed target IAM user/role ARN (and a session name for roles). IAM Identity Center identities and assignments must be provisioned in their authoritative identity source; restore only maps and verifies them.
+- Legacy Part 1 backups have no immutable run ID. Obvious same-day duplicate singleton/bundle indexes stop planning; select exact object keys explicitly rather than allowing the tool to guess. Their metadata also does not cryptographically bind a dependency to the exact provider bundle/version from one backup run. Planning derives provider edges from the complete selected inventory and rejects ambiguous providers, but operators must still select a coherent reviewed set and validate restored workloads.
+- Plan/report SHA-256 seals detect accidental or out-of-band content changes; they are integrity checks, not signatures or proof of author identity. Keep the configuration directory, overrides, plans, and report directory under trusted operator control. Descriptor, reparse-point, ownership-token, and digest checks fail closed on observed changes, but the local filesystem protocol is not a security boundary against a malicious process racing namespace changes.
+- `FailureAction=ROLLBACK` applies to one import job only. It is not an atomic rollback across all planned bundles. Only the `SUCCESSFUL` terminal state is counted as success; timeout, unknown states, and every failed/rollback-failed state are failures.
+- Reports count planned members and jobs, not `DescribeAssetBundleImportJob` imported-asset lists, because that response is not an authoritative inventory of every restored asset.
+- Asset bundles do not contain source data or credentials, and Part 2 cannot restore content that Part 1 excluded. Cross-account and cross-Region recovery requires reviewed principals, IAM roles, VPC/data-source settings, credentials, and post-import workload validation.
+- This remains an educational sample. Run security, compliance, quota, and representative non-production recovery testing before production use.
+
+Restore source access needs `s3:ListBucket`, `s3:GetObject`, `s3:GetObjectVersion`, `dynamodb:DescribeTable`, and `dynamodb:Scan`. Target access needs the applicable Quick Sight list/describe identity and asset APIs, `quicksight:CreateGroup`, `quicksight:RegisterUser`, `quicksight:CreateGroupMembership`, `quicksight:StartAssetBundleImportJob`, `quicksight:DescribeAssetBundleImportJob`, plus `iam:GetRole`/`iam:GetUser` for reviewed IAM mappings.

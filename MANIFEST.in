@@ -1,13 +1,12 @@
 # Include documentation and configuration files
 include README.md
 include LICENSE
-include CHANGELOG.md
-include requirements.txt
-include requirements-dev.txt
 include config.sample.yaml
+recursive-include examples *.yaml
 
 # Include package data
 recursive-include quicksight_backup *.py
+recursive-include quicksight_restore *.py
 recursive-include quicksight_backup/config *.yaml *.json
 
 # Exclude development and test files
@@ -19,6 +18,6 @@ exclude .coverage
 recursive-exclude tests *
 recursive-exclude .git *
 recursive-exclude __pycache__ *
-recursive-exclude *.pyc
 recursive-exclude .pytest_cache *
 recursive-exclude .mypy_cache *
+global-exclude *.py[cod]
