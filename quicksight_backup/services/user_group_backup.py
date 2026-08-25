@@ -9,7 +9,11 @@ from botocore.exceptions import ClientError, BotoCoreError
 import boto3
 
 from quicksight_backup.models.config import BackupConfig
-from quicksight_backup.models.backup_result import BackupResult, BackupStatus
+from quicksight_backup.models.backup_result import (
+    BackupResult,
+    BackupStatus,
+    aggregate_resource_counts,
+)
 from quicksight_backup.models.user_group import (
     User, 
     Group, 
@@ -32,7 +36,8 @@ class UserGroupBackupService(BaseBackupService):
     def __init__(self, config: BackupConfig):
         super().__init__(config)
         self.logger = logging.getLogger(__name__)
-    
+        self._backup_date_prefix: Optional[str] = None
+
     def get_effective_region(self) -> str:
         """
         Get the effective region for user/group operations.
@@ -51,220 +56,310 @@ class UserGroupBackupService(BaseBackupService):
             str: Date prefix string in YYYY-MM-DD format for table names
         """
         from datetime import datetime
-        
-        now = datetime.now()
-        
-        # Always return YYYY-MM-DD format for table names (DynamoDB table name safe)
-        date_prefix = f"{now.year:04d}-{now.month:02d}-{now.day:02d}"
-        
+
+        if self._backup_date_prefix is None:
+            now = datetime.now()
+            self._backup_date_prefix = f"{now.year:04d}-{now.month:02d}-{now.day:02d}"
+
         # Log if using a different format than configured for informational purposes
         if self.config.s3_prefix_format not in ["YYYY/MM/DD", "YYYY-MM-DD", "YYYYMMDD"]:
             self.logger.warning(f"Invalid prefix format '{self.config.s3_prefix_format}', using YYYY-MM-DD for table names")
-        
-        return date_prefix
-        
+
+        return self._backup_date_prefix
+
+    @staticmethod
+    def _create_child_result(operation_type: str, resource_type: str) -> BackupResult:
+        """Create a child operation result with an empty canonical resource count."""
+        return BackupResult(
+            resource_type=operation_type,
+            success=False,
+            items_processed=0,
+            items_failed=0,
+            status=BackupStatus.IN_PROGRESS,
+            metadata={
+                "resource_counts": {
+                    resource_type: {"successful": 0, "failed": 0, "skipped": 0}
+                }
+            },
+        )
+
+    @staticmethod
+    def _mark_child_success(
+        result: BackupResult, resource_type: str, record_count: int
+    ) -> None:
+        """Mark every known child record as successfully persisted."""
+        result.items_processed = record_count
+        result.items_failed = 0
+        result.success = True
+        result.status = BackupStatus.SUCCESS
+        result.metadata["resource_counts"][resource_type] = {
+            "successful": record_count,
+            "failed": 0,
+            "skipped": 0,
+        }
+
+    @staticmethod
+    def _mark_child_failure(
+        result: BackupResult,
+        resource_type: str,
+        error_message: str,
+        known_record_count: Optional[int],
+    ) -> None:
+        """Mark known records failed, or retain zero counts when enumeration is unknown."""
+        failed_count = known_record_count if known_record_count is not None else 0
+        result.error_messages.append(error_message)
+        result.items_processed = 0
+        result.items_failed = failed_count
+        result.success = False
+        result.status = BackupStatus.FAILED
+        result.metadata["resource_counts"][resource_type] = {
+            "successful": 0,
+            "failed": failed_count,
+            "skipped": 0,
+        }
+
     def backup(self) -> BackupResult:
         """
-        Run backup of both users and groups.
-        
+        Run backup of users, groups, and memberships.
+
         Returns:
             BackupResult: Combined result of user and group backup operations
         """
         start_time = time.time()
         result = BackupResult(
             resource_type="users_and_groups",
-            success=True,
+            success=False,
             items_processed=0,
-            items_failed=0
+            items_failed=0,
+            status=BackupStatus.IN_PROGRESS,
         )
-        
+        child_results = []
+        unexpected_failure = False
+
         try:
-            # Backup users
-            user_result = self.backup_users()
-            result.items_processed += user_result.items_processed
-            result.items_failed += user_result.items_failed
-            result.error_messages.extend(user_result.error_messages)
-            
-            # Backup groups
-            group_result = self.backup_groups()
-            result.items_processed += group_result.items_processed
-            result.items_failed += group_result.items_failed
-            result.error_messages.extend(group_result.error_messages)
-            
-            # Backup user-group memberships
-            membership_result = self.backup_user_group_memberships()
-            result.items_processed += membership_result.items_processed
-            result.items_failed += membership_result.items_failed
-            result.error_messages.extend(membership_result.error_messages)
-            
-            # Determine overall success
-            if result.items_failed > 0:
-                if result.items_processed > result.items_failed:
-                    result.status = BackupStatus.PARTIAL
-                else:
-                    result.status = BackupStatus.FAILED
-                    result.success = False
-            
+            for backup_operation in (
+                self.backup_users,
+                self.backup_groups,
+                self.backup_user_group_memberships,
+            ):
+                child_results.append(backup_operation())
         except Exception as e:
             self.logger.error(f"Unexpected error during user/group backup: {str(e)}")
-            result.add_error(f"Unexpected error: {str(e)}")
-            
+            result.error_messages.append(f"Unexpected error: {str(e)}")
+            unexpected_failure = True
+
+        for child_result in child_results:
+            result.items_processed += child_result.items_processed
+            result.items_failed += child_result.items_failed
+            result.error_messages.extend(child_result.error_messages)
+
+        resource_counts = {
+            resource_type: {"successful": 0, "failed": 0, "skipped": 0}
+            for resource_type in ("user", "group", "membership")
+        }
+        resource_counts.update(aggregate_resource_counts(child_results))
+        result.metadata["resource_counts"] = resource_counts
+
+        has_success = any(
+            child_result.status in (BackupStatus.SUCCESS, BackupStatus.PARTIAL)
+            for child_result in child_results
+        )
+        has_failure = unexpected_failure or any(
+            child_result.status != BackupStatus.SUCCESS for child_result in child_results
+        )
+
+        if not has_failure:
+            result.status = BackupStatus.SUCCESS
+            result.success = True
+        elif has_success:
+            result.status = BackupStatus.PARTIAL
+            result.success = False
+        else:
+            result.status = BackupStatus.FAILED
+            result.success = False
+
         result.execution_time = time.time() - start_time
         return result
-    
+
     def backup_users(self) -> BackupResult:
-        """
-        Backup Quick Sight users to DynamoDB.
-        
-        Returns:
-            BackupResult: Result of user backup operation
-        """
+        """Backup Quick Sight users to DynamoDB."""
         start_time = time.time()
-        result = BackupResult(
-            resource_type="users",
-            success=True,
-            items_processed=0,
-            items_failed=0
-        )
-        
+        resource_type = "user"
+        result = self._create_child_result("users", resource_type)
+        known_record_count: Optional[int] = None
+
         try:
             self.logger.info("Starting user backup operation")
-            
-            # Get all users from Quick Sight
             users_data = self.get_user_list()
             self.logger.info(f"Retrieved {len(users_data)} users from Quick Sight")
-            
-            # Transform to User objects
             users = transform_users_from_api_response(users_data)
-            
-            # Store users to DynamoDB
-            success = self.store_users_to_dynamodb(users)
-            
-            if success:
-                result.items_processed = len(users)
-                self.logger.info(f"Successfully backed up {len(users)} users to DynamoDB")
+            known_record_count = len(users)
+
+            if self.store_users_to_dynamodb(users):
+                self._mark_child_success(result, resource_type, known_record_count)
+                self.logger.info(
+                    f"Successfully backed up {known_record_count} users to DynamoDB"
+                )
             else:
-                result.add_error("Failed to store users to DynamoDB")
-                
+                self._mark_child_failure(
+                    result,
+                    resource_type,
+                    "Failed to store users to DynamoDB",
+                    known_record_count,
+                )
+
         except QuickSightAPIError as e:
             self.logger.error(f"Quick Sight API error during user backup: {str(e)}")
-            result.add_error(f"Quick Sight API error: {str(e)}")
+            self._mark_child_failure(
+                result,
+                resource_type,
+                f"Quick Sight API error: {str(e)}",
+                known_record_count,
+            )
         except DynamoDBError as e:
             self.logger.error(f"DynamoDB error during user backup: {str(e)}")
-            result.add_error(f"DynamoDB error: {str(e)}")
+            self._mark_child_failure(
+                result,
+                resource_type,
+                f"DynamoDB error: {str(e)}",
+                known_record_count,
+            )
         except Exception as e:
             self.logger.error(f"Unexpected error during user backup: {str(e)}")
-            result.add_error(f"Unexpected error: {str(e)}")
-            
+            self._mark_child_failure(
+                result,
+                resource_type,
+                f"Unexpected error: {str(e)}",
+                known_record_count,
+            )
+
         result.execution_time = time.time() - start_time
         return result
-    
+
     def backup_groups(self) -> BackupResult:
-        """
-        Backup Quick Sight groups to DynamoDB.
-        
-        Returns:
-            BackupResult: Result of group backup operation
-        """
+        """Backup Quick Sight groups to DynamoDB."""
         start_time = time.time()
-        result = BackupResult(
-            resource_type="groups",
-            success=True,
-            items_processed=0,
-            items_failed=0
-        )
-        
+        resource_type = "group"
+        result = self._create_child_result("groups", resource_type)
+        known_record_count: Optional[int] = None
+
         try:
             self.logger.info("Starting group backup operation")
-            
-            # Get all groups from Quick Sight
             groups_data = self.get_group_list()
             self.logger.info(f"Retrieved {len(groups_data)} groups from Quick Sight")
-            
-            # Get group memberships
+            known_record_count = len(groups_data)
             group_members = self._get_group_memberships(groups_data)
-            
-            # Transform to Group objects
             groups = transform_groups_from_api_response(groups_data, group_members)
-            
-            # Store groups to DynamoDB
-            success = self.store_groups_to_dynamodb(groups)
-            
-            if success:
-                result.items_processed = len(groups)
-                self.logger.info(f"Successfully backed up {len(groups)} groups to DynamoDB")
+
+            if self.store_groups_to_dynamodb(groups):
+                self._mark_child_success(result, resource_type, known_record_count)
+                self.logger.info(
+                    f"Successfully backed up {known_record_count} groups to DynamoDB"
+                )
             else:
-                result.add_error("Failed to store groups to DynamoDB")
-                
+                self._mark_child_failure(
+                    result,
+                    resource_type,
+                    "Failed to store groups to DynamoDB",
+                    known_record_count,
+                )
+
         except QuickSightAPIError as e:
             self.logger.error(f"Quick Sight API error during group backup: {str(e)}")
-            result.add_error(f"Quick Sight API error: {str(e)}")
+            self._mark_child_failure(
+                result,
+                resource_type,
+                f"Quick Sight API error: {str(e)}",
+                known_record_count,
+            )
         except DynamoDBError as e:
             self.logger.error(f"DynamoDB error during group backup: {str(e)}")
-            result.add_error(f"DynamoDB error: {str(e)}")
+            self._mark_child_failure(
+                result,
+                resource_type,
+                f"DynamoDB error: {str(e)}",
+                known_record_count,
+            )
         except Exception as e:
             self.logger.error(f"Unexpected error during group backup: {str(e)}")
-            result.add_error(f"Unexpected error: {str(e)}")
-            
+            self._mark_child_failure(
+                result,
+                resource_type,
+                f"Unexpected error: {str(e)}",
+                known_record_count,
+            )
+
         result.execution_time = time.time() - start_time
         return result
-    
+
     def backup_user_group_memberships(self) -> BackupResult:
-        """
-        Backup Quick Sight user-group memberships to DynamoDB.
-        
-        Returns:
-            BackupResult: Result of user-group membership backup operation
-        """
+        """Backup Quick Sight user-group memberships to DynamoDB."""
         start_time = time.time()
-        result = BackupResult(
-            resource_type="user_group_memberships",
-            success=True,
-            items_processed=0,
-            items_failed=0
-        )
-        
+        resource_type = "membership"
+        result = self._create_child_result("user_group_memberships", resource_type)
+        known_record_count: Optional[int] = None
+
         try:
             self.logger.info("Starting user-group membership backup operation")
-            
-            # Get all users and groups from Quick Sight
             users_data = self.get_user_list()
             groups_data = self.get_group_list()
-            
-            # Get group memberships
             group_members = self._get_group_memberships(groups_data)
-            
-            # Transform to User and Group objects
             users = transform_users_from_api_response(users_data)
             groups = transform_groups_from_api_response(groups_data, group_members)
-            
-            # Create membership relationships
             memberships = create_user_group_memberships(users, groups)
-            
-            self.logger.info(f"Created {len(memberships)} user-group membership relationships")
-            
-            # Store memberships to DynamoDB
-            success = self.store_user_group_memberships_to_dynamodb(memberships)
-            
-            if success:
-                result.items_processed = len(memberships)
-                self.logger.info(f"Successfully backed up {len(memberships)} user-group memberships to DynamoDB")
+            known_record_count = len(memberships)
+            self.logger.info(
+                f"Created {known_record_count} user-group membership relationships"
+            )
+
+            if self.store_user_group_memberships_to_dynamodb(memberships):
+                self._mark_child_success(result, resource_type, known_record_count)
+                self.logger.info(
+                    f"Successfully backed up {known_record_count} "
+                    "user-group memberships to DynamoDB"
+                )
             else:
-                result.add_error("Failed to store user-group memberships to DynamoDB")
-                
+                self._mark_child_failure(
+                    result,
+                    resource_type,
+                    "Failed to store user-group memberships to DynamoDB",
+                    known_record_count,
+                )
+
         except QuickSightAPIError as e:
-            self.logger.error(f"Quick Sight API error during user-group membership backup: {str(e)}")
-            result.add_error(f"Quick Sight API error: {str(e)}")
+            self.logger.error(
+                f"Quick Sight API error during user-group membership backup: {str(e)}"
+            )
+            self._mark_child_failure(
+                result,
+                resource_type,
+                f"Quick Sight API error: {str(e)}",
+                known_record_count,
+            )
         except DynamoDBError as e:
-            self.logger.error(f"DynamoDB error during user-group membership backup: {str(e)}")
-            result.add_error(f"DynamoDB error: {str(e)}")
+            self.logger.error(
+                f"DynamoDB error during user-group membership backup: {str(e)}"
+            )
+            self._mark_child_failure(
+                result,
+                resource_type,
+                f"DynamoDB error: {str(e)}",
+                known_record_count,
+            )
         except Exception as e:
-            self.logger.error(f"Unexpected error during user-group membership backup: {str(e)}")
-            result.add_error(f"Unexpected error: {str(e)}")
-            
+            self.logger.error(
+                f"Unexpected error during user-group membership backup: {str(e)}"
+            )
+            self._mark_child_failure(
+                result,
+                resource_type,
+                f"Unexpected error: {str(e)}",
+                known_record_count,
+            )
+
         result.execution_time = time.time() - start_time
         return result
-    
+
     def get_user_list(self) -> List[Dict[str, Any]]:
         """
         Retrieve all Quick Sight users with pagination handling.
@@ -377,7 +472,7 @@ class UserGroupBackupService(BaseBackupService):
         for group_data in groups_data:
             group_name = group_data.get('GroupName')
             if not group_name:
-                continue
+                raise QuickSightAPIError("Group entry is missing GroupName")
                 
             try:
                 members = []
@@ -413,8 +508,12 @@ class UserGroupBackupService(BaseBackupService):
                 self.logger.debug(f"Retrieved {len(members)} members for group '{group_name}'")
                 
             except ClientError as e:
-                self.logger.warning(f"Failed to get members for group '{group_name}': {e}")
-                group_members[group_name] = []  # Continue with empty member list
+                error_code = e.response["Error"]["Code"]
+                error_message = e.response["Error"]["Message"]
+                raise QuickSightAPIError(
+                    f"Failed to list members for group '{group_name}': "
+                    f"{error_code} - {error_message}"
+                )
         
         return group_members  
   

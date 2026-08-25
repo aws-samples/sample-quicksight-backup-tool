@@ -67,6 +67,31 @@ _RESTORE_KEYS = {
     "validate_target_principals",
 }
 _TABLE_KEYS = {"users", "groups", "memberships"}
+_MANIFEST_SOURCE_KEYS = {
+    "schema_version",
+    "backup_id",
+    "complete",
+    "mode",
+    "s3_bucket_name",
+    "s3_prefix",
+    "backup_date",
+    "date_prefix_format",
+    "s3_region",
+    "dynamodb_region",
+    "identity_tables",
+    "resolved_identity_tables",
+    "bundle_keys",
+}
+_MANIFEST_CONFIG_KEYS = {
+    "s3_bucket_name",
+    "s3_prefix",
+    "backup_date",
+    "date_prefix_format",
+    "s3_region",
+    "dynamodb_region",
+    "identity_tables",
+    "bundle_keys",
+}
 _MAPPING_KEYS = {
     "source_principal_arn",
     "target_principal_arn",
@@ -132,6 +157,7 @@ class RestoreConfigLoader:
         path: str,
         backup_date: Optional[str] = None,
         bundle_keys: Optional[List[str]] = None,
+        backup_manifest: Optional[str] = None,
     ) -> RestoreConfig:
         raw_path = Path(path).expanduser()
         if raw_path.suffix.lower() not in (".yaml", ".yml", ".json"):
@@ -164,12 +190,28 @@ class RestoreConfigLoader:
             raise RestoreConfigurationError("Restore configuration root must be an object")
         self._reject_plaintext_credentials(raw)
         self._reject_unknown_keys(raw, _ROOT_KEYS, "config")
-        source_data = self._mapping(raw.get("source_backup"), "source_backup")
+        manifest_source = self._load_backup_manifest(backup_manifest) if backup_manifest else None
+        source_value = raw.get("source_backup")
+        if source_value is None and manifest_source is not None:
+            source_value = {}
+        source_data = dict(self._mapping(source_value, "source_backup"))
         target_data = self._mapping(raw.get("target"), "target")
         restore_data = self._mapping(raw.get("restore"), "restore")
         self._reject_unknown_keys(source_data, _SOURCE_KEYS, "source_backup")
         self._reject_unknown_keys(target_data, _TARGET_KEYS, "target")
         self._reject_unknown_keys(restore_data, _RESTORE_KEYS, "restore")
+
+        if manifest_source is not None:
+            for key in _MANIFEST_CONFIG_KEYS:
+                if key not in manifest_source:
+                    continue
+                manifest_value = manifest_source[key]
+                existing_value = source_data.get(key)
+                if existing_value not in (None, "", [], {}) and existing_value != manifest_value:
+                    raise RestoreConfigurationError(
+                        "source_backup.{0} conflicts with the backup manifest".format(key)
+                    )
+                source_data[key] = manifest_value
 
         source_region = self._aliased_string(
             source_data,
@@ -280,6 +322,20 @@ class RestoreConfigLoader:
                 "restore.validate_target_principals",
             ),
         )
+        if manifest_source is not None:
+            backup_mode = manifest_source["mode"]
+            compatible_modes = {
+                "full": {"full"},
+                "assets-only": {"full", "assets-only"},
+                "identities-only": {"full", "users-only"},
+            }
+            if backup_mode not in compatible_modes.get(restore.mode, set()):
+                raise RestoreConfigurationError(
+                    "restore mode {0} is incompatible with manifest backup mode {1}".format(
+                        restore.mode, backup_mode
+                    )
+                )
+
         config = RestoreConfig(
             source_backup=source,
             target=target,
@@ -300,6 +356,76 @@ class RestoreConfigLoader:
                 )
         config.validate()
         return config
+
+    def _load_backup_manifest(self, path: str) -> Dict[str, Any]:
+        """Load the authoritative restore-source section from a backup manifest."""
+        raw_path = Path(path).expanduser()
+        if raw_path.suffix.lower() != ".json":
+            raise RestoreConfigurationError("Backup manifest must be JSON")
+        try:
+            manifest_path = reject_link_components(
+                raw_path, "backup manifest file", allow_missing=False
+            )
+            encoded = read_bounded_regular_file(
+                manifest_path, MAX_OVERRIDES_BYTES, "backup manifest file"
+            )
+            raw = loads_strict_json(encoded.decode("utf-8"))
+        except RestoreConfigurationError:
+            raise
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+            raise RestoreConfigurationError("Unable to read backup manifest: {0}".format(error))
+        if not isinstance(raw, Mapping):
+            raise RestoreConfigurationError("Backup manifest root must be an object")
+        self._reject_plaintext_credentials(raw, "backup_manifest")
+        source = self._mapping(raw.get("restore_source"), "backup_manifest.restore_source")
+        self._reject_unknown_keys(source, _MANIFEST_SOURCE_KEYS, "backup_manifest.restore_source")
+        if source.get("schema_version") != "1.0":
+            raise RestoreConfigurationError("Unsupported backup manifest restore schema")
+        if source.get("complete") is not True:
+            raise RestoreConfigurationError(
+                "Backup manifest is incomplete; restore requires a backup without failures"
+            )
+        backup_id = self._required_string(source, "backup_id", "backup_manifest.restore_source")
+        if not re.match(r"^backup-[A-Za-z0-9._-]+$", backup_id):
+            raise RestoreConfigurationError("Backup manifest backup_id is invalid")
+        mode = self._required_string(source, "mode", "backup_manifest.restore_source")
+        if mode not in ("full", "assets-only", "users-only"):
+            raise RestoreConfigurationError("Backup manifest mode is invalid")
+
+        tables = self._mapping(
+            source.get("identity_tables"),
+            "backup_manifest.restore_source.identity_tables",
+        )
+        resolved_tables = self._mapping(
+            source.get("resolved_identity_tables"),
+            "backup_manifest.restore_source.resolved_identity_tables",
+        )
+        self._reject_unknown_keys(tables, _TABLE_KEYS, "backup manifest identity tables")
+        self._reject_unknown_keys(
+            resolved_tables, _TABLE_KEYS, "backup manifest resolved identity tables"
+        )
+        backup_date = self._required_string(source, "backup_date", "backup_manifest.restore_source")
+        for name in _TABLE_KEYS:
+            base_name = self._required_string(tables, name, "backup manifest identity tables")
+            resolved_name = self._required_string(
+                resolved_tables, name, "backup manifest resolved identity tables"
+            )
+            if resolved_name != "{0}-{1}".format(backup_date, base_name):
+                raise RestoreConfigurationError(
+                    "Backup manifest resolved identity table does not match its date and base"
+                )
+
+        bundle_keys = self._string_list(
+            source.get("bundle_keys", []),
+            "backup_manifest.restore_source.bundle_keys",
+        )
+        if len(set(bundle_keys)) != len(bundle_keys):
+            raise RestoreConfigurationError("Backup manifest bundle keys must be unique")
+        if mode in ("full", "assets-only") and not bundle_keys:
+            raise RestoreConfigurationError(
+                "Backup manifest does not contain any successful asset bundle keys"
+            )
+        return dict(source)
 
     def _load_auth(self, section: Mapping[str, Any], label: str) -> AuthConfig:
         nested_value = section.get("auth", {})

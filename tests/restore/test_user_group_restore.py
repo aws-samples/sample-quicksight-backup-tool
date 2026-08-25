@@ -67,10 +67,17 @@ def group_mapping():
 
 
 class IdentityQuickSight:
-    def __init__(self, existing_users=None, existing_groups=None, register_user=None):
+    def __init__(
+        self,
+        existing_users=None,
+        existing_groups=None,
+        register_user=None,
+        existing_memberships=None,
+    ):
         self.existing_users = existing_users or {}
         self.existing_groups = existing_groups or {}
         self.registered_user = register_user
+        self.existing_memberships = set(existing_memberships or [])
         self.register_requests = []
         self.group_requests = []
         self.membership_requests = []
@@ -107,6 +114,11 @@ class IdentityQuickSight:
                 "UserName": name,
             }
         }
+
+    def list_group_memberships(self, **request):
+        pair = (request["GroupName"], "idc-user")
+        members = [{"MemberName": pair[1]}] if pair in self.existing_memberships else []
+        return {"GroupMemberList": members}
 
     def create_group_membership(self, **request):
         self.membership_requests.append(request)
@@ -154,7 +166,8 @@ def test_identity_center_is_verify_only_and_membership_uses_mapped_name(restore_
                 "Active": True,
                 "Role": "READER",
             }
-        }
+        },
+        existing_memberships={("source-group", "idc-user")},
     )
 
     result = service(restore_config, quicksight, IAM(), mappings).restore(snapshot)
@@ -165,7 +178,10 @@ def test_identity_center_is_verify_only_and_membership_uses_mapped_name(restore_
     assert restored_user.action == "verified-only"
     assert "authoritative identity source" in restored_user.boundary
     assert quicksight.register_requests == []
-    assert quicksight.membership_requests[0]["MemberName"] == "idc-user"
+    restored_membership = [item for item in result.results if item.identity_kind == "membership"][0]
+    assert restored_membership.action == "verified-only"
+    assert "authoritative identity source" in restored_membership.boundary
+    assert quicksight.membership_requests == []
 
 
 def test_quicksight_managed_register_user_uses_required_api_shape(restore_config):

@@ -614,7 +614,8 @@ class RestoreReport(SerializableContract):
     def calculate_digest(self) -> str:
         return sha256_json(self.digest_payload())
 
-    def calculate_summary(self) -> Dict[str, Any]:
+    def _calculate_legacy_summary(self) -> Dict[str, Any]:
+        """Return the original v2.0 operation-level summary."""
         outcomes: Dict[str, int] = {}
         for job in self.import_jobs:
             outcomes[job.outcome] = outcomes.get(job.outcome, 0) + 1
@@ -626,6 +627,184 @@ class RestoreReport(SerializableContract):
             "warning_count": len(self.warnings),
             "error_count": len(self.errors),
         }
+
+    def calculate_resource_summary(self) -> Dict[str, Any]:
+        """Derive unique per-resource outcomes from sealed plan and run evidence."""
+        outcome_fields = (
+            "successful",
+            "failed",
+            "skipped",
+            "not_attempted",
+            "pending",
+        )
+        resource_counts: Dict[str, Dict[str, int]] = {}
+
+        def add_count(resource_type: str, outcome: str, amount: int = 1) -> None:
+            counts = resource_counts.setdefault(
+                resource_type,
+                {field_name: 0 for field_name in outcome_fields},
+            )
+            counts[outcome] += amount
+
+        bundle_resources: Dict[str, List[str]] = {}
+        resource_bundles: Dict[str, List[str]] = {}
+        for bundle in self.plan_evidence.get("bundles", []):
+            if not isinstance(bundle, dict) or not isinstance(bundle.get("key"), str):
+                raise ValueError("restore report resource evidence is invalid")
+            bundle_key = bundle["key"]
+            selected_resources = bundle.get("selected_resources", [])
+            if not isinstance(selected_resources, list):
+                raise ValueError("restore report selected_resources evidence is invalid")
+
+            unique_resources: List[str] = []
+            seen_resources = set()
+            for resource_key in selected_resources:
+                if (
+                    not isinstance(resource_key, str)
+                    or "/" not in resource_key
+                    or not resource_key.split("/", 1)[0]
+                    or not resource_key.split("/", 1)[1]
+                ):
+                    raise ValueError("restore report resource key is invalid")
+                if resource_key in seen_resources:
+                    continue
+                seen_resources.add(resource_key)
+                unique_resources.append(resource_key)
+                resource_bundles.setdefault(resource_key, []).append(bundle_key)
+            bundle_resources[bundle_key] = unique_resources
+
+        duplicate_owners: Dict[str, str] = {}
+        duplicate_decisions = self.plan_evidence.get("duplicate_decisions", [])
+        if not isinstance(duplicate_decisions, list):
+            raise ValueError("restore report duplicate decision evidence is invalid")
+        for decision in duplicate_decisions:
+            if not isinstance(decision, dict):
+                raise ValueError("restore report duplicate decision evidence is invalid")
+            resource_key = decision.get("resource_key")
+            selected_bundle_key = decision.get("selected_bundle_key")
+            if not isinstance(resource_key, str) or not isinstance(selected_bundle_key, str):
+                raise ValueError("restore report duplicate decision evidence is invalid")
+            duplicate_owners[resource_key] = selected_bundle_key
+
+        job_outcomes = {job.bundle_key: job.outcome for job in self.import_jobs}
+        outcome_mapping = {
+            "imported": "successful",
+            "failed": "failed",
+            "timed_out": "failed",
+            "skipped_policy": "skipped",
+            "blocked_prerequisite": "not_attempted",
+            "not_attempted_fail_fast": "not_attempted",
+            "not_attempted_precondition": "not_attempted",
+            "not_attempted_interrupted": "not_attempted",
+            "pending": "pending",
+        }
+
+        for resource_key in sorted(resource_bundles):
+            candidates = resource_bundles[resource_key]
+            owner = duplicate_owners.get(resource_key, candidates[0])
+            if owner not in candidates:
+                raise ValueError("restore report duplicate owner is not a resource candidate")
+            job_outcome = job_outcomes.get(owner)
+            if job_outcome is None:
+                resource_outcome = (
+                    "pending" if self.overall_status == "running" else "not_attempted"
+                )
+            else:
+                resource_outcome = outcome_mapping.get(job_outcome)
+                if resource_outcome is None:
+                    raise ValueError("restore report import outcome is unsupported")
+            resource_type = resource_key.split("/", 1)[0]
+            add_count(resource_type, resource_outcome)
+
+        identity_actions: Dict[str, int] = {}
+        observed_identity_counts: Dict[str, int] = {}
+        identity_preflight_failures = 0
+        if self.identity_result:
+            for item in self.identity_result.results:
+                if item.identity_kind == "preflight":
+                    if item.status == "failed":
+                        identity_preflight_failures += 1
+                    continue
+                if not item.identity_kind:
+                    raise ValueError("restore report identity kind is invalid")
+                identity_outcome = {
+                    "success": "successful",
+                    "failed": "failed",
+                }.get(item.status)
+                if identity_outcome is None:
+                    raise ValueError("restore report identity status is unsupported")
+                add_count(item.identity_kind, identity_outcome)
+                observed_identity_counts[item.identity_kind] = (
+                    observed_identity_counts.get(item.identity_kind, 0) + 1
+                )
+                if item.action:
+                    identity_actions[item.action] = identity_actions.get(item.action, 0) + 1
+
+        selected_identity_counts = self.selected_backup.get("identity_counts", {})
+        if not isinstance(selected_identity_counts, dict):
+            raise ValueError("restore report identity_counts evidence is invalid")
+        for identity_kind, selected_count in sorted(selected_identity_counts.items()):
+            if (
+                not isinstance(identity_kind, str)
+                or not identity_kind
+                or isinstance(selected_count, bool)
+                or not isinstance(selected_count, int)
+                or selected_count < 0
+            ):
+                raise ValueError("restore report identity_counts evidence is invalid")
+            residual = max(
+                selected_count - observed_identity_counts.get(identity_kind, 0),
+                0,
+            )
+            if residual:
+                residual_outcome = (
+                    "pending" if self.overall_status == "running" else "not_attempted"
+                )
+                add_count(identity_kind, residual_outcome, residual)
+
+        preferred_order = (
+            "datasource",
+            "dataset",
+            "analysis",
+            "dashboard",
+            "theme",
+            "folder",
+            "topic",
+            "vpcconnection",
+            "refreshschedule",
+            "user",
+            "group",
+            "membership",
+        )
+        ordered_types = [item for item in preferred_order if item in resource_counts]
+        ordered_types.extend(sorted(set(resource_counts) - set(ordered_types)))
+        ordered_counts = {item: resource_counts[item] for item in ordered_types}
+        resource_totals = {
+            field_name: sum(counts[field_name] for counts in ordered_counts.values())
+            for field_name in outcome_fields
+        }
+        return {
+            "resource_counts": ordered_counts,
+            "resource_totals": resource_totals,
+            "identity_actions": dict(sorted(identity_actions.items())),
+            "identity_preflight_failures": identity_preflight_failures,
+            "asset_failure_granularity": (
+                "Unique canonical resources inherit their owning bundle-job outcome; "
+                "QuickSight does not return complete per-member terminal outcomes."
+            ),
+        }
+
+    def calculate_summary(self) -> Dict[str, Any]:
+        legacy_summary = self._calculate_legacy_summary()
+
+        # Existing v2.0 reports were digested with the six-key legacy summary.
+        # Return it before interpreting newer evidence so old signed reports remain readable.
+        if self.summary == legacy_summary:
+            return legacy_summary
+
+        rich_summary = dict(legacy_summary)
+        rich_summary.update(self.calculate_resource_summary())
+        return rich_summary
 
     def seal(self) -> "RestoreReport":
         self.summary = self.calculate_summary()

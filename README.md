@@ -805,7 +805,20 @@ The Amazon Quick Sight Backup Tool provides comprehensive backup capabilities fo
 
 ## Restore (Part 2 P0)
 
-Restore is exposed as a separate command, so the existing `quicksight-backup` CLI and configuration remain unchanged. Start with `examples/restore-in-place.yaml`, select every reviewed legacy S3 object by its exact key, and review the generated plan before execution:
+Restore is exposed as a separate command, so the existing `quicksight-backup` CLI and configuration remain unchanged. For backups that include the generated restore manifest, the normal workflow validates and creates a digest-protected plan internally, shows one reviewed preview, asks for confirmation once, and removes the temporary plan after execution:
+
+```text
+# Read-only validation and preview
+quicksight-restore --manifest backup_manifest_YYYYMMDD_HHMMSS.json --config target.yaml --dry-run
+
+# Execute with one interactive confirmation
+quicksight-restore --manifest backup_manifest_YYYYMMDD_HHMMSS.json --config target.yaml
+
+# Non-interactive execution after reviewing the dry-run
+quicksight-restore --manifest backup_manifest_YYYYMMDD_HHMMSS.json --config target.yaml --yes
+```
+
+The normal command reports preflight stages, identity results, bundle progress, import-job status changes, 15-second heartbeats, and per-resource completion totals. Operators who need to retain and separately approve the plan can still use the advanced workflow:
 
 ```text
 quicksight-restore plan --config examples/restore-in-place.yaml --bundle-key S3_OBJECT_KEY_1 --bundle-key S3_OBJECT_KEY_2 --output restore-plan.json
@@ -814,7 +827,7 @@ quicksight-restore status --config examples/restore-in-place.yaml --restore-id R
 quicksight-restore status --report-directory ./restore-reports --restore-id RESTORE_ID
 ```
 
-Replace the key placeholders with full object keys as shown by S3 or the backup logs. When selectors are supplied on the command line, repeat the identical `--backup-date` and `--bundle-key` values for both `plan` and `run` so execution can reproduce the reviewed configuration snapshot; alternatively, persist them in `source_backup` and omit the CLI selector flags. Date-only discovery (`--backup-date`, or `source_backup.backup_date` without explicit keys) is a convenience for dates containing exactly one ZIP object. Normal Part 1 runs can produce several ZIPs; an ambiguous date is rejected rather than guessed, so use repeated `--bundle-key` options or `source_backup.bundle_keys` for those runs.
+For legacy backups that do not contain a restore manifest, replace the advanced-workflow key placeholders with full object keys as shown by S3 or the backup logs. When selectors are supplied on the command line, repeat the identical `--backup-date` and `--bundle-key` values for both `plan` and `run` so execution can reproduce the reviewed configuration snapshot; alternatively, persist them in `source_backup` and omit the CLI selector flags. Date-only discovery (`--backup-date`, or `source_backup.backup_date` without explicit keys) is a convenience for dates containing exactly one ZIP object. Normal Part 1 runs can produce several ZIPs; an ambiguous date is rejected rather than guessed, so use repeated `--bundle-key` options or `source_backup.bundle_keys` for those runs.
 
 The config-backed status form resolves `restore.report_directory` relative to the configuration file. The direct form is local-only and resolves a relative report directory from the current working directory; it does not initialize AWS clients. Status exits are `0` for success, `1` for failed, `2` for partial, `3` for a valid running checkpoint, and `4` when the report cannot be read or verified.
 
@@ -825,6 +838,15 @@ The config-backed status form resolves `restore.report_directory` relative to th
 - Use the default AWS credential chain, named profiles, or STS AssumeRole. Restore configuration does not accept access keys, session tokens, passwords, or credential pairs. Store data-source secrets in an approved target service such as AWS Secrets Manager and reference only supported API-native values.
 - Asset restore accepts native `QUICKSIGHT_JSON` archives only. Each selected bundle must be no larger than 20 MiB because the original verified bytes are sent through `StartAssetBundleImportJob`'s inline body; this version does not rewrite, recompress, or stage bundles in target-owned S3.
 - Quick Sight-managed users can be registered. IAM users require a reviewed target IAM user/role ARN (and a session name for roles). IAM Identity Center identities and assignments must be provisioned in their authoritative identity source; restore only maps and verifies them.
+
+#### Quick-native user activation after restore
+
+A successful restore of an `IdentityType=QUICKSIGHT` user means that the target user resource, role, group mappings, and memberships were recreated. It does **not** restore the user's password, prior sign-in session, or activated state. A newly registered native user is normally returned with `Active=false` and must complete registration, set a password, and sign in again before the user can access Quick.
+
+This manual step is required by the AWS API contract: [`RegisterUser`](https://docs.aws.amazon.com/quicksight/latest/APIReference/API_RegisterUser.html) returns a one-time `UserInvitationUrl` for native Quick users, but API registration does **not** send an invitation email. This sample intentionally does not write that sensitive one-time URL into plans, logs, or restore reports. After restore, a Quick administrator should open **Manage Quick > Manage users** and choose **Resend invitation** for each restored native user. Integrators that call `RegisterUser` directly may instead deliver the URL from that immediate API response through an approved secure channel, but must not persist or log it. The user must finish the registration flow and sign in once; verify that `list-users` then reports `Active=true`.
+
+This limitation applies to Quick-native users only. IAM users continue to authenticate through their mapped IAM principal, and IAM Identity Center users remain managed and activated in IAM Identity Center.
+
 - Legacy Part 1 backups have no immutable run ID. Obvious same-day duplicate singleton/bundle indexes stop planning; select exact object keys explicitly rather than allowing the tool to guess. Their metadata also does not cryptographically bind a dependency to the exact provider bundle/version from one backup run. Planning derives provider edges from the complete selected inventory and rejects ambiguous providers, but operators must still select a coherent reviewed set and validate restored workloads.
 - Plan/report SHA-256 seals detect accidental or out-of-band content changes; they are integrity checks, not signatures or proof of author identity. Keep the configuration directory, overrides, plans, and report directory under trusted operator control. Descriptor, reparse-point, ownership-token, and digest checks fail closed on observed changes, but the local filesystem protocol is not a security boundary against a malicious process racing namespace changes.
 - `FailureAction=ROLLBACK` applies to one import job only. It is not an atomic rollback across all planned bundles. Only the `SUCCESSFUL` terminal state is counted as success; timeout, unknown states, and every failed/rollback-failed state are failures.

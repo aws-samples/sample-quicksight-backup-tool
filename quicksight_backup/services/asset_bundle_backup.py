@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional
 from botocore.exceptions import ClientError
 
 from quicksight_backup.services.base import BaseBackupService
-from quicksight_backup.models.backup_result import BackupResult
+from quicksight_backup.models.backup_result import BackupResult, BackupStatus
 from quicksight_backup.models.asset_inventory import AssetInventory
 from quicksight_backup.models.config import BackupConfig
 from quicksight_backup.models.exceptions import QuickSightBackupError
@@ -29,6 +29,7 @@ class AssetBundleBackupService(BaseBackupService):
         self.s3_client = None
         self.skipped_items = []
         self._discovered_datasources = []
+        self.uploaded_bundle_keys: List[str] = []
     
     def get_effective_region(self) -> str:
         """
@@ -73,6 +74,17 @@ class AssetBundleBackupService(BaseBackupService):
     def backup(self) -> BackupResult:
         """Run asset bundle backup operation."""
         start_time = time.time()
+        asset_types = (
+            ("datasources", "datasource"),
+            ("datasets", "dataset"),
+            ("analyses", "analysis"),
+            ("dashboards", "dashboard"),
+        )
+        resource_counts = {
+            resource_type: {"successful": 0, "failed": 0, "skipped": 0}
+            for _, resource_type in asset_types
+        }
+        self.uploaded_bundle_keys = []
         result = BackupResult(
             resource_type="asset_bundles",
             success=False,
@@ -80,59 +92,135 @@ class AssetBundleBackupService(BaseBackupService):
             items_failed=0,
             error_messages=[],
             execution_time=0.0,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
+            status=BackupStatus.IN_PROGRESS,
+            metadata={
+                "resource_counts": resource_counts,
+                "bundle_keys": self.uploaded_bundle_keys,
+            },
         )
-        
+
+        self.skipped_items = []
+        self._discovered_datasources = []
+
         try:
             # Validate configuration
             if not self.validate_max_assets_per_bundle(self.config.max_assets_per_bundle):
-                raise QuickSightBackupError(f"Invalid max_assets_per_bundle value: {self.config.max_assets_per_bundle}. Must be between 1 and 100 inclusive.")
-            
+                raise QuickSightBackupError(
+                    f"Invalid max_assets_per_bundle value: "
+                    f"{self.config.max_assets_per_bundle}. Must be between 1 and 100 inclusive."
+                )
+
             # Initialize clients
-            self.quicksight_client = self.get_client('quicksight')
-            self.s3_client = self.get_client('s3')
-            
+            self.quicksight_client = self.get_client("quicksight")
+            self.s3_client = self.get_client("s3")
+
             # Discover assets
             logger.info("Starting asset discovery...")
             inventory = self.discover_assets()
-            
+
             if inventory.total_count == 0:
                 logger.warning("No assets found to backup")
-                result.success = True
-                return result
-            
-            logger.info(f"Discovered {inventory.total_count} assets for backup")
-            
-            # Backup assets by type
+            else:
+                logger.info(f"Discovered {inventory.total_count} assets for backup")
+
+            # Backup only the discovered root assets. Included dependencies are not
+            # additional resources for completion accounting.
             total_processed = 0
             total_failed = 0
-            
-            for asset_type in ['datasources', 'datasets', 'analyses', 'dashboards']:
-                assets = getattr(inventory, asset_type)
+
+            for inventory_type, resource_type in asset_types:
+                assets = getattr(inventory, inventory_type)
                 if assets:
-                    processed, failed = self._backup_asset_type(asset_type, assets)
+                    processed, failed = self._backup_asset_type(inventory_type, assets)
+                    resource_counts[resource_type]["successful"] = processed
+                    resource_counts[resource_type]["failed"] = failed
                     total_processed += processed
                     total_failed += failed
-            
-            result.items_processed = total_processed
-            result.items_failed = total_failed
-            result.success = total_failed == 0
-            
-            # Include skipped items in metadata for reporting
-            if hasattr(self, 'skipped_items') and self.skipped_items:
-                result.metadata['skipped_items'] = self.skipped_items
-                logger.info(f"Total skipped items: {len(self.skipped_items)}")
-            
+                    result.items_processed = total_processed
+                    result.items_failed = total_failed
+
+            if total_failed > 0:
+                result.status = (
+                    BackupStatus.PARTIAL if total_processed > 0 else BackupStatus.FAILED
+                )
+                result.success = False
+            else:
+                result.status = BackupStatus.SUCCESS
+                result.success = True
+
         except Exception as e:
             logger.error(f"Asset bundle backup failed: {str(e)}")
             result.error_messages.append(str(e))
             result.success = False
-        
+            result.status = (
+                BackupStatus.PARTIAL
+                if result.items_processed > 0
+                else BackupStatus.FAILED
+            )
+
         finally:
+            self._record_skipped_items(result)
             result.execution_time = time.time() - start_time
-        
+
         return result
-    
+
+    def _track_skipped_item(
+        self, item: Dict[str, Any], resource_type: str, reason: str
+    ) -> None:
+        """Track a validation exclusion unless that resource is already recorded."""
+        id_fields = {
+            "datasource": "DataSourceId",
+            "dataset": "DataSetId",
+            "analysis": "AnalysisId",
+            "dashboard": "DashboardId",
+        }
+        resource_id = item.get(id_fields[resource_type], "Unknown")
+
+        if any(
+            skipped_item.get("resource_type") == resource_type
+            and skipped_item.get("resource_id") == resource_id
+            for skipped_item in self.skipped_items
+        ):
+            return
+
+        self.skipped_items.append(
+            {
+                "resource_id": resource_id,
+                "resource_type": resource_type,
+                "resource_name": item.get("Name", "Unknown"),
+                "reason": reason,
+            }
+        )
+
+    def _record_skipped_items(self, result: BackupResult) -> None:
+        """Deduplicate skipped assets and add their per-type counts to a result."""
+        deduplicated = []
+        seen = set()
+
+        for item in self.skipped_items:
+            if not isinstance(item, dict):
+                continue
+            key = (item.get("resource_type"), item.get("resource_id"))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduplicated.append(item)
+
+        self.skipped_items = deduplicated
+        resource_counts = result.metadata["resource_counts"]
+        for counts in resource_counts.values():
+            counts["skipped"] = 0
+
+        for item in deduplicated:
+            resource_type = item.get("resource_type")
+            if resource_type in resource_counts:
+                resource_counts[resource_type]["skipped"] += 1
+
+        if deduplicated:
+            result.metadata["skipped_items"] = deduplicated
+            logger.info(f"Total skipped items: {len(deduplicated)}")
+
     def discover_assets(self) -> AssetInventory:
         """Discover all Quick Sight assets for backup."""
         inventory = AssetInventory()
@@ -863,7 +951,11 @@ class AssetBundleBackupService(BaseBackupService):
                         logger.debug(f"Found dataset: {dataset.get('Name', 'Unknown')}")
                     else:
                         skipped_count += 1
-                        # Skipped item tracking is handled in _validate_dataset method
+                        self._track_skipped_item(
+                            dataset,
+                            "dataset",
+                            "Dataset excluded by validation",
+                        )
         
         except ClientError as e:
             logger.warning(f"Failed to list datasets: {str(e)}")
@@ -890,7 +982,11 @@ class AssetBundleBackupService(BaseBackupService):
                         logger.debug(f"Found analysis: {analysis.get('Name', 'Unknown')}")
                     else:
                         skipped_count += 1
-                        # Skipped item tracking is handled in _validate_analysis_or_dashboard method
+                        self._track_skipped_item(
+                            analysis,
+                            "analysis",
+                            "Analysis excluded by validation",
+                        )
         
         except ClientError as e:
             logger.warning(f"Failed to list analyses: {str(e)}")
@@ -917,7 +1013,11 @@ class AssetBundleBackupService(BaseBackupService):
                         logger.debug(f"Found dashboard: {dashboard.get('Name', 'Unknown')}")
                     else:
                         skipped_count += 1
-                        # Skipped item tracking is handled in _validate_analysis_or_dashboard method
+                        self._track_skipped_item(
+                            dashboard,
+                            "dashboard",
+                            "Dashboard excluded by validation",
+                        )
         
         except ClientError as e:
             logger.warning(f"Failed to list dashboards: {str(e)}")
@@ -1211,6 +1311,7 @@ class AssetBundleBackupService(BaseBackupService):
                 self._simple_upload_to_s3(temp_file_path, s3_key)
             
             logger.info(f"Successfully uploaded asset bundle to S3")
+            self.uploaded_bundle_keys.append(s3_key)
             return True
         
         except requests.exceptions.RequestException as e:

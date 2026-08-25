@@ -284,11 +284,13 @@ class RestorePlanner:
                         ),
                     )
                 )
-                warnings.append(
-                    "Verified matching duplicate {0}; preserved all original archives".format(
-                        resource_key
-                    )
-                )
+
+        if duplicate_decisions:
+            warnings.append(
+                "{0} shared dependencies appeared in multiple bundles; all definitions "
+                "matched. Each dependency will exist once in the target and be reused by "
+                "all restored assets.".format(len(duplicate_decisions))
+            )
 
         source_resources = set(grouped)
         dependency_resources = {

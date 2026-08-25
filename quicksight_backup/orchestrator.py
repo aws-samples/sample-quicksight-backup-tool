@@ -277,67 +277,100 @@ class QuickSightBackupOrchestrator:
         return report 
    
     def generate_backup_manifest(self, output_path: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Generate backup manifest listing all backed up resources.
-        
-        Args:
-            output_path: Optional path to save manifest file
-            
-        Returns:
-            Dict[str, Any]: Backup manifest data
-        """
+        """Generate a self-contained backup manifest for reporting and restore."""
         if not self.backup_report:
             raise QuickSightBackupError("No backup report available. Run backup first.")
-        
-        manifest = {
-            'backup_metadata': {
-                'timestamp': self.backup_report.start_time.isoformat(),
-                'tool_version': '1.0.0',
-                'aws_account_id': self.config.aws_account_id,
-                'aws_region': self.config.aws_region,
-                'total_execution_time': self.backup_report.total_execution_time,
-                'success_rate': self.backup_report.success_rate
-            },
-            'backup_summary': {
-                'total_resources': self.backup_report.total_resources,
-                'successful_resources': self.backup_report.successful_resources,
-                'failed_resources': self.backup_report.failed_resources,
-                'partial_resources': self.backup_report.partial_resources
-            },
-            'resource_details': []
+
+        backup_date = self.user_group_service.generate_date_prefix()
+        identity_table_bases = {
+            "users": self.config.dynamodb_users_table,
+            "groups": self.config.dynamodb_groups_table,
+            "memberships": self.config.users_group_table_name,
         }
-        
-        # Add details for each backup result
+        resolved_identity_tables = {
+            name: f"{backup_date}-{base_name}"
+            for name, base_name in identity_table_bases.items()
+        }
+        asset_result = next(
+            (
+                result
+                for result in self.backup_report.results
+                if result.resource_type == "asset_bundles"
+            ),
+            None,
+        )
+        bundle_keys = sorted(
+            set(asset_result.metadata.get("bundle_keys", [])) if asset_result else set()
+        )
+        backup_id = "backup-{0}".format(
+            self.backup_report.start_time.strftime("%Y%m%dT%H%M%S")
+        )
+
+        manifest = {
+            "manifest_version": "2.0",
+            "backup_metadata": {
+                "backup_id": backup_id,
+                "timestamp": self.backup_report.start_time.isoformat(),
+                "tool_version": "1.0.0",
+                "aws_account_id": self.config.aws_account_id,
+                "aws_region": self.config.aws_region,
+                "mode": self.mode,
+                "total_execution_time": self.backup_report.total_execution_time,
+                "success_rate": self.backup_report.success_rate,
+                "resource_success_rate": self.backup_report.resource_success_rate,
+            },
+            "restore_source": {
+                "schema_version": "1.0",
+                "backup_id": backup_id,
+                "complete": not self.backup_report.has_failures,
+                "mode": self.mode,
+                "s3_bucket_name": self.config.s3_bucket_name,
+                "s3_prefix": self.config.s3_prefix,
+                "backup_date": backup_date,
+                "date_prefix_format": self.config.s3_prefix_format,
+                "s3_region": self.config.aws_region,
+                "dynamodb_region": self.config.aws_region,
+                "identity_tables": identity_table_bases,
+                "resolved_identity_tables": resolved_identity_tables,
+                "bundle_keys": bundle_keys,
+            },
+            "backup_summary": {
+                "total_resources": self.backup_report.total_resources,
+                "successful_resources": self.backup_report.successful_resources,
+                "failed_resources": self.backup_report.failed_resources,
+                "partial_resources": self.backup_report.partial_resources,
+            },
+            "resource_counts": self.backup_report.resource_counts,
+            "resource_totals": self.backup_report.resource_totals,
+            "resource_details": [],
+        }
+
         for result in self.backup_report.results:
             resource_detail = {
-                'resource_type': result.resource_type,
-                'status': result.status.value,
-                'items_processed': result.items_processed,
-                'items_failed': result.items_failed,
-                'execution_time': result.execution_time,
-                'timestamp': result.timestamp.isoformat(),
-                'error_messages': result.error_messages,
-                'metadata': result.metadata
+                "resource_type": result.resource_type,
+                "status": result.status.value,
+                "items_processed": result.items_processed,
+                "items_failed": result.items_failed,
+                "execution_time": result.execution_time,
+                "timestamp": result.timestamp.isoformat(),
+                "error_messages": result.error_messages,
+                "metadata": result.metadata,
             }
-            
-            # Add storage locations based on resource type
             if result.resource_type == "users_and_groups":
-                resource_detail['storage_locations'] = {
-                    'users_table': self.config.dynamodb_users_table,
-                    'groups_table': self.config.dynamodb_groups_table
+                resource_detail["storage_locations"] = {
+                    "identity_table_bases": identity_table_bases,
+                    "resolved_identity_tables": resolved_identity_tables,
                 }
             elif result.resource_type == "asset_bundles":
-                resource_detail['storage_locations'] = {
-                    's3_bucket': self.config.s3_bucket_name,
-                    's3_prefix_format': self.config.s3_prefix_format
+                resource_detail["storage_locations"] = {
+                    "s3_bucket": self.config.s3_bucket_name,
+                    "s3_prefix": self.config.s3_prefix,
+                    "bundle_keys": bundle_keys,
                 }
-            
-            manifest['resource_details'].append(resource_detail)
-        
-        # Save manifest to file if path provided
+            manifest["resource_details"].append(resource_detail)
+
         if output_path:
             self._save_manifest_to_file(manifest, output_path)
-        
         return manifest
     
     def _save_manifest_to_file(self, manifest: Dict[str, Any], output_path: str) -> None:
@@ -369,13 +402,13 @@ class QuickSightBackupOrchestrator:
     def generate_backup_report_summary(self) -> str:
         """
         Generate a human-readable backup report summary.
-        
+
         Returns:
             str: Formatted backup report summary
         """
         if not self.backup_report:
             raise QuickSightBackupError("No backup report available. Run backup first.")
-        
+
         report_lines = [
             "=" * 60,
             "Amazon Quick Sight Backup Report Summary",
@@ -385,49 +418,63 @@ class QuickSightBackupOrchestrator:
             f"AWS Region: {self.config.aws_region}",
             f"Total Execution Time: {self.backup_report.total_execution_time:.2f} seconds",
             "",
-            "Overall Results:",
-            f"  Total Resources: {self.backup_report.total_resources}",
-            f"  Successful: {self.backup_report.successful_resources}",
-            f"  Failed: {self.backup_report.failed_resources}",
-            f"  Partial: {self.backup_report.partial_resources}",
-            f"  Success Rate: {self.backup_report.success_rate:.1f}%",
+            "Overall Operations:",
+            f"  Total Operations: {self.backup_report.total_resources}",
+            f"  Successful Operations: {self.backup_report.successful_resources}",
+            f"  Failed Operations: {self.backup_report.failed_resources}",
+            f"  Partial Operations: {self.backup_report.partial_resources}",
+            f"  Operation Success Rate: {self.backup_report.success_rate:.1f}%",
             "",
-            "Resource Details:",
-            "-" * 40
+            "Resource Counts:",
+            self.backup_report.format_resource_counts(),
+            f"Resource Success Rate: {self.backup_report.resource_success_rate:.1f}%",
+            "",
+            "Operation Details:",
+            "-" * 40,
         ]
-        
+
         for result in self.backup_report.results:
-            status_symbol = "✓" if result.status == BackupStatus.SUCCESS else "✗" if result.status == BackupStatus.FAILED else "⚠"
-            
-            report_lines.extend([
-                f"{status_symbol} {result.resource_type.replace('_', ' ').title()}:",
-                f"    Status: {result.status.value}",
-                f"    Items Processed: {result.items_processed}",
-                f"    Items Failed: {result.items_failed}",
-                f"    Execution Time: {result.execution_time:.2f}s"
-            ])
-            
+            status_symbol = (
+                "✓"
+                if result.status == BackupStatus.SUCCESS
+                else "✗"
+                if result.status == BackupStatus.FAILED
+                else "⚠"
+            )
+
+            report_lines.extend(
+                [
+                    f"{status_symbol} {result.resource_type.replace('_', ' ').title()}:",
+                    f"    Status: {result.status.value}",
+                    f"    Items Processed: {result.items_processed}",
+                    f"    Items Failed: {result.items_failed}",
+                    f"    Execution Time: {result.execution_time:.2f}s",
+                ]
+            )
+
             if result.error_messages:
                 report_lines.append("    Errors:")
                 for error in result.error_messages:
                     report_lines.append(f"      - {error}")
-            
+
             report_lines.append("")
-        
+
         # Add storage information
-        report_lines.extend([
-            "Storage Locations:",
-            "-" * 40,
-            f"DynamoDB Users Table: {self.config.dynamodb_users_table}",
-            f"DynamoDB Groups Table: {self.config.dynamodb_groups_table}",
-            f"S3 Bucket: {self.config.s3_bucket_name}",
-            f"S3 Prefix Format: {self.config.s3_prefix_format}",
-            "",
-            "=" * 60
-        ])
-        
+        report_lines.extend(
+            [
+                "Storage Locations:",
+                "-" * 40,
+                f"DynamoDB Users Table: {self.config.dynamodb_users_table}",
+                f"DynamoDB Groups Table: {self.config.dynamodb_groups_table}",
+                f"S3 Bucket: {self.config.s3_bucket_name}",
+                f"S3 Prefix Format: {self.config.s3_prefix_format}",
+                "",
+                "=" * 60,
+            ]
+        )
+
         return "\n".join(report_lines)
-    
+
     def save_backup_report(self, output_path: str) -> None:
         """
         Save backup report summary to a text file.
@@ -456,36 +503,39 @@ class QuickSightBackupOrchestrator:
     def get_backup_statistics(self) -> Dict[str, Any]:
         """
         Get backup statistics for monitoring and alerting.
-        
+
         Returns:
             Dict[str, Any]: Backup statistics
         """
         if not self.backup_report:
             raise QuickSightBackupError("No backup report available. Run backup first.")
-        
+
         statistics = {
-            'timestamp': self.backup_report.end_time.isoformat(),
-            'success_rate': self.backup_report.success_rate,
-            'total_execution_time': self.backup_report.total_execution_time,
-            'total_resources': self.backup_report.total_resources,
-            'successful_resources': self.backup_report.successful_resources,
-            'failed_resources': self.backup_report.failed_resources,
-            'partial_resources': self.backup_report.partial_resources,
-            'resource_breakdown': {}
+            "timestamp": self.backup_report.end_time.isoformat(),
+            "success_rate": self.backup_report.success_rate,
+            "resource_success_rate": self.backup_report.resource_success_rate,
+            "total_execution_time": self.backup_report.total_execution_time,
+            "total_resources": self.backup_report.total_resources,
+            "successful_resources": self.backup_report.successful_resources,
+            "failed_resources": self.backup_report.failed_resources,
+            "partial_resources": self.backup_report.partial_resources,
+            "resource_counts": self.backup_report.resource_counts,
+            "resource_totals": self.backup_report.resource_totals,
+            "resource_breakdown": {},
         }
-        
-        # Add breakdown by resource type
+
+        # Retain the legacy per-operation breakdown for compatibility.
         for result in self.backup_report.results:
-            statistics['resource_breakdown'][result.resource_type] = {
-                'status': result.status.value,
-                'items_processed': result.items_processed,
-                'items_failed': result.items_failed,
-                'execution_time': result.execution_time,
-                'error_count': len(result.error_messages)
+            statistics["resource_breakdown"][result.resource_type] = {
+                "status": result.status.value,
+                "items_processed": result.items_processed,
+                "items_failed": result.items_failed,
+                "execution_time": result.execution_time,
+                "error_count": len(result.error_messages),
             }
-        
+
         return statistics
-    
+
     @property
     def is_initialized(self) -> bool:
         """Check if orchestrator is properly initialized."""

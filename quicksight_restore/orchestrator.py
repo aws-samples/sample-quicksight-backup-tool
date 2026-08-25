@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 import hashlib
 import json
 import time
@@ -53,6 +53,7 @@ class RestoreOrchestrator:
         target_iam_client: Optional[Any] = None,
         sleep: Any = time.sleep,
         monotonic: Any = time.monotonic,
+        progress_callback: Optional[Callable[[str], None]] = None,
     ):
         self.config = config
         self.factory = session_factory or SessionFactory(
@@ -76,6 +77,17 @@ class RestoreOrchestrator:
         self.report_service = RestoreReportService(config.restore.report_directory)
         self.sleep = sleep
         self.monotonic = monotonic
+        self.progress_callback = progress_callback
+
+    def _emit_progress(self, message: str) -> None:
+        """Publish optional human-facing progress without affecting restore execution."""
+        if self.progress_callback is None:
+            return
+        try:
+            self.progress_callback(message)
+        except Exception:
+            # Progress display is advisory and must never change restore behavior.
+            return
 
     def plan(
         self,
@@ -124,6 +136,7 @@ class RestoreOrchestrator:
         restore_id = "{0}-{1}".format(
             datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"), uuid.uuid4().hex[:12]
         )
+        self._emit_progress("Starting restore {0}.".format(restore_id))
         start_clock = self.monotonic()
         started_at = datetime.now(timezone.utc).isoformat()
         identity_result = None
@@ -211,6 +224,11 @@ class RestoreOrchestrator:
             raise
 
         try:
+            self._emit_progress(
+                "Preflight 1/3: verifying {0} source bundle(s) and checksums...".format(
+                    len(plan.bundles)
+                )
+            )
             self._ensure_catalog(bool(plan.bundles), plan.restore_identities)
             if self.catalog is None:
                 raise RestoreExecutionError("Restore catalog clients were not initialized")
@@ -230,9 +248,13 @@ class RestoreOrchestrator:
                 "passed",
                 "Every selected version, size, checksum, and member inventory was reverified",
             )
+            self._emit_progress("Preflight 1/3 passed: source artifacts verified.")
 
             identity_snapshot = None
             if plan.restore_identities:
+                self._emit_progress(
+                    "Preflight 2/3: verifying users, groups, and memberships snapshot..."
+                )
                 execution_stage = "identity_source_preflight"
                 execution_bundle_key = None
                 identity_snapshot = plan.manifest.identity_snapshot
@@ -246,7 +268,11 @@ class RestoreOrchestrator:
                     "passed",
                     "The sealed identity table snapshot was reverified",
                 )
+                self._emit_progress("Preflight 2/3 passed: identity snapshot verified.")
+            else:
+                self._emit_progress("Preflight 2/3 skipped: identities were not selected.")
 
+            self._emit_progress("Preflight 3/3: rechecking target conflicts and drift...")
             execution_stage = "target_state_preflight"
             if plan.conflict_decisions:
                 self._ensure_asset_quicksight()
@@ -256,6 +282,7 @@ class RestoreOrchestrator:
                 "passed",
                 "Target conflict observations still match the reviewed plan",
             )
+            self._emit_progress("Preflight 3/3 passed: target state is unchanged.")
 
             for bundle in plan.bundles:
                 if bundle.execution_action == SKIP_POLICY_ACTION:
@@ -272,6 +299,13 @@ class RestoreOrchestrator:
             checkpoint()
 
             if identity_snapshot is not None:
+                self._emit_progress(
+                    "Restoring identities: {0} user(s), {1} group(s), {2} membership(s)...".format(
+                        identity_snapshot.users.item_count,
+                        identity_snapshot.groups.item_count,
+                        identity_snapshot.memberships.item_count,
+                    )
+                )
                 execution_stage = "identity_restore"
                 self._ensure_identity_quicksight()
                 needs_iam = any(
@@ -288,6 +322,12 @@ class RestoreOrchestrator:
                 )
                 identity_result = identity_service.restore(identity_snapshot)
                 errors.extend(identity_result.errors)
+                self._emit_progress(
+                    "Identity restore complete: {0} succeeded, {1} failed.".format(
+                        identity_result.succeeded,
+                        identity_result.failed,
+                    )
+                )
                 if identity_result.failed and not identity_result.errors:
                     errors.append(
                         "Identity restore reported {0} failed result(s)".format(
@@ -301,19 +341,36 @@ class RestoreOrchestrator:
                 fail_fast_trigger = {"bundle_key": None, "stage": "identity_restore"}
 
             asset_service = None
-            if any(bundle.execution_action == IMPORT_ACTION for bundle in plan.bundles):
+            import_bundle_count = sum(
+                1 for bundle in plan.bundles if bundle.execution_action == IMPORT_ACTION
+            )
+            if import_bundle_count:
                 self._ensure_asset_quicksight()
+                service_options: Dict[str, Any] = {
+                    "sleep": self.sleep,
+                    "monotonic": self.monotonic,
+                }
+                if self.progress_callback is not None:
+                    service_options["progress_callback"] = self.progress_callback
                 asset_service = AssetBundleRestoreService(
                     self.config,
                     self.catalog,
                     self.target_quicksight,
-                    sleep=self.sleep,
-                    monotonic=self.monotonic,
+                    **service_options,
+                )
+                self._emit_progress(
+                    "Starting asset restore: {0} bundle(s) to import.".format(import_bundle_count)
                 )
             execution_stage = "asset_import"
             for index, bundle in enumerate(plan.bundles, start=1):
                 execution_bundle_key = bundle.key
+                bundle_label = Path(bundle.key).name
                 if bundle.execution_action == SKIP_POLICY_ACTION:
+                    self._emit_progress(
+                        "Bundle {0}/{1}: skipped {2} by reviewed conflict policy.".format(
+                            index, len(plan.bundles), bundle_label
+                        )
+                    )
                     continue
                 if fail_fast_trigger is not None:
                     reason = "Not attempted because fail-fast execution stopped during {0}".format(
@@ -328,6 +385,11 @@ class RestoreOrchestrator:
                         attempted=False,
                         trigger_bundle_key=fail_fast_trigger["bundle_key"],
                         trigger_stage=fail_fast_trigger["stage"],
+                    )
+                    self._emit_progress(
+                        "Bundle {0}/{1}: not attempted ({2}).".format(
+                            index, len(plan.bundles), reason
+                        )
                     )
                     checkpoint()
                     continue
@@ -354,9 +416,17 @@ class RestoreOrchestrator:
                         trigger_stage="prerequisite",
                     )
                     errors.append("{0}: {1}".format(bundle.key, reason))
+                    self._emit_progress(
+                        "Bundle {0}/{1}: blocked ({2}).".format(index, len(plan.bundles), reason)
+                    )
                     checkpoint()
                     continue
 
+                self._emit_progress(
+                    "Bundle {0}/{1}: importing {2}...".format(
+                        index, len(plan.bundles), bundle_label
+                    )
+                )
                 try:
                     if asset_service is None:
                         raise RestoreExecutionError("Asset import service was not initialized")
@@ -375,6 +445,21 @@ class RestoreOrchestrator:
                         trigger_stage="asset_import",
                     )
                 jobs_by_key[bundle.key] = result
+                if result.outcome == "imported":
+                    self._emit_progress(
+                        "Bundle {0}/{1}: imported successfully ({2}).".format(
+                            index, len(plan.bundles), bundle_label
+                        )
+                    )
+                else:
+                    self._emit_progress(
+                        "Bundle {0}/{1}: ended as {2} ({3}).".format(
+                            index,
+                            len(plan.bundles),
+                            result.outcome,
+                            result.terminal_status,
+                        )
+                    )
                 if result.outcome != "imported":
                     errors.append(
                         "Import job {0} for {1} ended as {2} ({3})".format(
@@ -467,6 +552,7 @@ class RestoreOrchestrator:
             validation_results=validation_results,
         )
         self.report_service.save_checkpoint(report, final=True)
+        self._emit_progress("Restore execution finished with status {0}.".format(overall.upper()))
         if interrupted:
             raise KeyboardInterrupt()
         return report
@@ -644,6 +730,15 @@ class RestoreOrchestrator:
                     plan.manifest.identity_snapshot.sha256
                     if plan.manifest.identity_snapshot
                     else None
+                ),
+                "identity_counts": (
+                    {
+                        "user": plan.manifest.identity_snapshot.users.item_count,
+                        "group": plan.manifest.identity_snapshot.groups.item_count,
+                        "membership": (plan.manifest.identity_snapshot.memberships.item_count),
+                    }
+                    if plan.restore_identities and plan.manifest.identity_snapshot
+                    else {}
                 ),
             },
             started_at=started_at,

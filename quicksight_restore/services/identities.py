@@ -65,6 +65,9 @@ class UserGroupRestoreService:
         memberships = list(snapshot.memberships.items)
         user_names_by_source: Dict[str, str] = {}
         group_names_by_source: Dict[str, str] = {}
+        source_identity_types = {
+            str(user.get("arn", "")): str(user.get("identity_type", "")).upper() for user in users
+        }
 
         # Validate every source record and reviewed mapping before the first target mutation.
         preflight_errors = self._preflight(groups, users, memberships)
@@ -153,7 +156,17 @@ class UserGroupRestoreService:
                     raise ValueError(
                         "source user or group did not resolve to a verified target principal"
                     )
-                action = self._ensure_membership(user_name, group_name)
+                identity_center = source_identity_types.get(user_source) == "IAM_IDENTITY_CENTER"
+                action = self._ensure_membership(
+                    user_name,
+                    group_name,
+                    identity_center=identity_center,
+                )
+                boundary = (
+                    "IAM Identity Center group memberships remain in the authoritative identity source."
+                    if identity_center
+                    else None
+                )
                 result.results.append(
                     IdentityResult(
                         source_principal_arn=membership_source,
@@ -161,6 +174,7 @@ class UserGroupRestoreService:
                         identity_kind="membership",
                         action=action,
                         status="success",
+                        boundary=boundary,
                     )
                 )
             except Exception as error:
@@ -396,7 +410,19 @@ class UserGroupRestoreService:
         if actual_role != expected_role:
             raise ValueError("existing target user role does not match the source role")
 
-    def _ensure_membership(self, user_name: str, group_name: str) -> str:
+    def _ensure_membership(
+        self,
+        user_name: str,
+        group_name: str,
+        identity_center: bool = False,
+    ) -> str:
+        if self._membership_exists(user_name, group_name):
+            return "verified-only" if identity_center else "verified"
+        if identity_center:
+            raise ValueError(
+                "mapped IAM Identity Center membership does not exist in Quick Sight; "
+                "manage it in the authoritative identity source"
+            )
         try:
             self.quicksight.create_group_membership(
                 AwsAccountId=self.target.aws_account_id,
@@ -409,6 +435,27 @@ class UserGroupRestoreService:
             if self._code(error) in _ALREADY_EXISTS:
                 return "verified"
             raise
+
+    def _membership_exists(self, user_name: str, group_name: str) -> bool:
+        next_token = None
+        while True:
+            request: Dict[str, Any] = {
+                "AwsAccountId": self.target.aws_account_id,
+                "Namespace": self.target.namespace,
+                "GroupName": group_name,
+                "MaxResults": 100,
+            }
+            if next_token:
+                request["NextToken"] = next_token
+            response = self.quicksight.list_group_memberships(**request)
+            if any(
+                str(member.get("MemberName", "")) == user_name
+                for member in response.get("GroupMemberList", [])
+            ):
+                return True
+            next_token = response.get("NextToken")
+            if not next_token:
+                return False
 
     def _describe_group(self, group_name: str) -> Optional[Dict[str, Any]]:
         try:

@@ -92,6 +92,7 @@ class AssetBundleRestoreService:
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         jitter: Optional[Callable[[float], float]] = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
     ):
         self.config = config
         self.catalog = catalog
@@ -99,6 +100,16 @@ class AssetBundleRestoreService:
         self.sleep = sleep
         self.monotonic = monotonic
         self.jitter = jitter or (lambda maximum: random.uniform(0.0, maximum))
+        self.progress_callback = progress_callback
+
+    def _emit_progress(self, message: str) -> None:
+        if self.progress_callback is None:
+            return
+        try:
+            self.progress_callback(message)
+        except Exception:
+            # Display failures must not alter import behavior.
+            return
 
     def restore_bundle(
         self,
@@ -257,6 +268,8 @@ class AssetBundleRestoreService:
         delay = 1.0
         response = initial_response
         last_terminal_status = ""
+        last_progress_status = ""
+        last_progress_at = start_clock
         while True:
             if response is None:
                 try:
@@ -310,6 +323,22 @@ class AssetBundleRestoreService:
             last_terminal_status = terminal_status or last_terminal_status
             errors = self._json_records(response.get("Errors", []))
             rollback_errors = self._json_records(response.get("RollbackErrors", []))
+            if self.progress_callback is not None:
+                progress_now = self.monotonic()
+                if (
+                    terminal_status != last_progress_status
+                    or progress_now - last_progress_at >= 15.0
+                ):
+                    elapsed = int(max(0.0, progress_now - start_clock))
+                    self._emit_progress(
+                        "Import job {0}: {1} ({2}s elapsed).".format(
+                            job_id,
+                            terminal_status or "UNKNOWN",
+                            elapsed,
+                        )
+                    )
+                    last_progress_status = terminal_status
+                    last_progress_at = progress_now
             if terminal_status == "SUCCESSFUL":
                 return self._result(
                     bundle,

@@ -219,37 +219,43 @@ def run_backup(args: argparse.Namespace) -> int:
         output_dir = Path(args.output_dir) if args.output_dir else Path.cwd()
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Generate manifest (default enabled)
+        manifest_path = None
+        backup_manifest = None
         if args.generate_manifest or args.mode == 'full':
-            manifest_path = output_dir / f"backup_manifest_{orchestrator.backup_report.start_time.strftime('%Y%m%d_%H%M%S')}.json"
-            orchestrator.generate_backup_manifest(str(manifest_path))
+            manifest_path = output_dir / f"backup_manifest_{backup_report.start_time.strftime('%Y%m%d_%H%M%S')}.json"
+            backup_manifest = orchestrator.generate_backup_manifest(str(manifest_path))
             logger.info(f"Backup manifest saved to: {manifest_path}")
-        
+
         # Generate report (default enabled)
         if args.generate_report or args.mode == 'full':
-            report_path = output_dir / f"backup_report_{orchestrator.backup_report.start_time.strftime('%Y%m%d_%H%M%S')}.txt"
+            report_path = output_dir / f"backup_report_{backup_report.start_time.strftime('%Y%m%d_%H%M%S')}.txt"
             orchestrator.save_backup_report(str(report_path))
             logger.info(f"Backup report saved to: {report_path}")
-        
-        # Print summary to console
+
+        exit_code = 2 if backup_report.has_failures else 0
+
+        # --no-progress controls display only; completion status is always evaluated.
         if not args.no_progress:
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("BACKUP COMPLETED")
-            print("="*60)
-            
-            if orchestrator.backup_report:
-                print(f"Success Rate: {orchestrator.backup_report.success_rate:.1f}%")
-                print(f"Total Resources: {orchestrator.backup_report.total_resources}")
-                print(f"Execution Time: {orchestrator.backup_report.total_execution_time:.2f}s")
-                
-                if orchestrator.backup_report.failed_resources > 0:
-                    print(f"⚠ {orchestrator.backup_report.failed_resources} resources failed")
-                    return 2  # Partial success
-                else:
-                    print("✓ All resources backed up successfully")
-        
-        return 0
-        
+            print("=" * 60)
+            if backup_manifest:
+                print(f"Backup ID: {backup_manifest['restore_source']['backup_id']}")
+            if manifest_path:
+                print(f"Restore Manifest: {manifest_path}")
+            print(f"Total Operations: {backup_report.total_resources}")
+            print(f"Execution Time: {backup_report.total_execution_time:.2f}s")
+            print("\nResource Counts:")
+            print(backup_report.format_resource_counts())
+            print(f"Resource Success Rate: {backup_report.resource_success_rate:.1f}%")
+
+            if backup_report.has_failures:
+                print("⚠ Backup completed with failures")
+            else:
+                print("✓ All resources backed up successfully")
+
+        return exit_code
+
     except ConfigurationError as e:
         logger.error(f"Configuration error: {e}")
         print(f"Configuration Error: {e}", file=sys.stderr)
