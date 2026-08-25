@@ -114,6 +114,42 @@ def _overrides_template() -> str:
     )
 
 
+def _validate_editor_document(value: dict[str, Any], document_kind: str) -> str | None:
+    keys = set(value)
+    if document_kind == "backup":
+        allowed = {"aws", "dynamodb", "s3", "backup", "logging"}
+        missing = {"aws", "s3"} - keys
+        if keys & {"source_backup", "target", "restore"}:
+            return "This looks like a restore configuration. Use it in the Restore tab."
+    elif document_kind == "restore":
+        allowed = {"source_backup", "target", "restore"}
+        missing = {"target", "restore"} - keys
+        if keys & {"aws", "dynamodb", "s3", "backup", "logging"}:
+            return "This looks like a backup configuration. Paste the target restore configuration here."
+    elif document_kind == "overrides":
+        allowed = {
+            "OverrideParameters",
+            "OverridePermissions",
+            "OverrideTags",
+            "OverrideValidationStrategy",
+        }
+        missing = set()
+        if keys & {"aws", "dynamodb", "s3", "backup", "logging", "target", "restore"}:
+            return (
+                "This is not an overrides document. Paste only API-native Override* sections here."
+            )
+        if not keys:
+            return "Overrides JSON must contain at least one API-native Override* section."
+    else:
+        raise ValueError("unsupported editor document kind")
+    unknown = keys - allowed
+    if unknown:
+        return "Unexpected {0} key(s): {1}".format(document_kind, ", ".join(sorted(unknown)))
+    if missing:
+        return "Missing required {0} key(s): {1}".format(document_kind, ", ".join(sorted(missing)))
+    return None
+
+
 def _inline_json_file(
     workspace: SessionWorkspace,
     label: str,
@@ -121,6 +157,7 @@ def _inline_json_file(
     filename: str,
     template: str,
     help_text: str,
+    document_kind: str,
     formats: tuple[str, ...] = ("JSON", "YAML"),
     default_format: str = "JSON",
 ) -> InlineFile | None:
@@ -142,6 +179,10 @@ def _inline_json_file(
         return None
     if not isinstance(value, dict):
         st.error("Configuration JSON must have an object root.")
+        return None
+    document_error = _validate_editor_document(value, document_kind)
+    if document_error:
+        st.error(document_error)
         return None
 
     format_key = key + "_save_format"
@@ -178,6 +219,7 @@ def _loaded_json_file(
     label: str,
     key: str,
     help_text: str,
+    document_kind: str,
     formats: tuple[str, ...] = ("JSON", "YAML"),
 ) -> InlineFile | None:
     content = upload.getvalue()
@@ -203,6 +245,7 @@ def _loaded_json_file(
         original,
         st.session_state[key],
         help_text,
+        document_kind,
         formats=formats,
         default_format=original_format if original_format in formats else formats[0],
     )
@@ -336,6 +379,7 @@ with backup_tab:
                 "Loaded backup configuration JSON",
                 "loaded_backup_config_editor",
                 "The uploaded file is parsed and normalized to JSON before editing.",
+                "backup",
             )
     else:
         backup_config = _inline_json_file(
@@ -345,6 +389,7 @@ with backup_tab:
             "backup-config.json",
             _backup_template(),
             "Edit account, Region, bucket, and unique DynamoDB table base names before validation.",
+            "backup",
         )
     col_profile, col_mode = st.columns(2)
     with col_profile:
@@ -450,6 +495,7 @@ with restore_tab:
                 "Loaded restore configuration JSON",
                 "loaded_restore_config_editor",
                 "Edit target settings and restore.identity_mappings after YAML/JSON normalization.",
+                "restore",
             )
     else:
         st.caption(
@@ -463,6 +509,7 @@ with restore_tab:
             "restore-config.json",
             _restore_template(),
             "Edit target settings, named profiles, principals, and identity mappings.",
+            "restore",
         )
 
     overrides_source = st.radio(
@@ -488,6 +535,7 @@ with restore_tab:
                 "Loaded API-native overrides JSON",
                 "loaded_restore_overrides_editor",
                 "The edited JSON keeps the uploaded filename so existing overrides_file references work.",
+                "overrides",
                 formats=("JSON",),
             )
     elif overrides_source == "Edit JSON inline":
@@ -498,6 +546,7 @@ with restore_tab:
             "restore-overrides.json",
             _overrides_template(),
             "Set restore.overrides_file to ./restore-overrides.json in the restore config.",
+            "overrides",
             formats=("JSON",),
         )
     else:
