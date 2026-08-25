@@ -96,6 +96,25 @@ class SessionWorkspace:
 
         visit(value)
 
+    @classmethod
+    def editable_json_text(cls, original_name: str, content: bytes) -> str:
+        """Safely normalize an uploaded YAML/JSON object for inline JSON editing."""
+        name = Path(original_name).name
+        suffix = Path(name).suffix.lower()
+        if suffix not in (".json", ".yaml", ".yml"):
+            raise ValueError("only YAML or JSON files can be edited inline")
+        if len(content) > _MAX_UPLOAD_BYTES:
+            raise ValueError("uploaded file exceeds the 16 MiB UI limit")
+        cls._reject_sensitive_upload(name, content)
+        try:
+            text = content.decode("utf-8")
+            value = json.loads(text) if suffix == ".json" else yaml.safe_load(text)
+        except (UnicodeDecodeError, ValueError, yaml.YAMLError) as error:
+            raise ValueError("unable to parse uploaded configuration: {0}".format(error)) from error
+        if not isinstance(value, Mapping):
+            raise ValueError("inline-edited configuration must have a JSON object root")
+        return json.dumps(value, indent=2, default=str)
+
     def save_upload(self, original_name: str, content: bytes) -> Path:
         """Persist one bounded config/manifest upload using only its basename."""
         name = Path(original_name).name

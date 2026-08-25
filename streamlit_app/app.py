@@ -146,6 +146,38 @@ def _inline_json_file(
     return InlineFile(name=filename, content=content)
 
 
+def _loaded_json_file(
+    workspace: SessionWorkspace,
+    upload: Any,
+    label: str,
+    key: str,
+    help_text: str,
+) -> InlineFile | None:
+    content = upload.getvalue()
+    source_digest = sha256(upload.name.encode("utf-8") + content).hexdigest()
+    marker = key + "_source_digest"
+    if st.session_state.get(marker) != source_digest:
+        try:
+            st.session_state[key] = workspace.editable_json_text(upload.name, content)
+        except ValueError as error:
+            st.error(str(error))
+            return None
+        st.session_state[marker] = source_digest
+    original = Path(upload.name).name
+    filename = (
+        original
+        if Path(original).suffix.lower() == ".json"
+        else Path(original).stem + ".edited.json"
+    )
+    return _inline_json_file(
+        label,
+        key,
+        filename,
+        st.session_state[key],
+        help_text,
+    )
+
+
 def _workspace() -> SessionWorkspace:
     if "ui_session_id" not in st.session_state:
         st.session_state.ui_session_id = uuid.uuid4().hex
@@ -258,11 +290,23 @@ with backup_tab:
         key="backup_config_source",
     )
     if backup_config_source == "Upload file":
-        backup_config = st.file_uploader(
+        backup_upload = st.file_uploader(
             "Backup YAML or JSON configuration",
             type=["yaml", "yml", "json"],
             key="backup_config_upload",
         )
+        backup_config = backup_upload
+        if backup_upload is not None and st.checkbox(
+            "Edit loaded backup config inline",
+            key="edit_loaded_backup_config",
+        ):
+            backup_config = _loaded_json_file(
+                workspace,
+                backup_upload,
+                "Loaded backup configuration JSON",
+                "loaded_backup_config_editor",
+                "The uploaded file is parsed and normalized to JSON before editing.",
+            )
     else:
         backup_config = _inline_json_file(
             "Backup configuration JSON",
@@ -359,11 +403,23 @@ with restore_tab:
         key="restore_config_source",
     )
     if restore_config_source == "Upload file":
-        restore_config = st.file_uploader(
+        restore_config_upload = st.file_uploader(
             "Target restore YAML or JSON configuration",
             type=["yaml", "yml", "json"],
             key="restore_config_upload",
         )
+        restore_config = restore_config_upload
+        if restore_config_upload is not None and st.checkbox(
+            "Edit loaded restore config and identity mappings inline",
+            key="edit_loaded_restore_config",
+        ):
+            restore_config = _loaded_json_file(
+                workspace,
+                restore_config_upload,
+                "Loaded restore configuration JSON",
+                "loaded_restore_config_editor",
+                "Edit target settings and restore.identity_mappings after YAML/JSON normalization.",
+            )
     else:
         st.caption(
             "Cross-account user/group mappings are edited under "
@@ -384,11 +440,23 @@ with restore_tab:
         key="restore_overrides_source",
     )
     if overrides_source == "Upload file":
-        overrides_upload = st.file_uploader(
+        overrides_file_upload = st.file_uploader(
             "Overrides JSON referenced by the configuration",
             type=["json"],
             key="restore_overrides_upload",
         )
+        overrides_upload = overrides_file_upload
+        if overrides_file_upload is not None and st.checkbox(
+            "Edit loaded overrides inline",
+            key="edit_loaded_overrides",
+        ):
+            overrides_upload = _loaded_json_file(
+                workspace,
+                overrides_file_upload,
+                "Loaded API-native overrides JSON",
+                "loaded_restore_overrides_editor",
+                "The edited JSON keeps the uploaded filename so existing overrides_file references work.",
+            )
     elif overrides_source == "Edit JSON inline":
         overrides_upload = _inline_json_file(
             "API-native overrides JSON",

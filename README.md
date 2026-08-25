@@ -84,7 +84,7 @@ pip install -e ".[web]"
 streamlit run streamlit_app/app.py --server.address 127.0.0.1
 ```
 
-The UI is intended for a single trusted operator on the local machine. It uses named AWS profiles, stores uploaded/generated files in a random session directory under the operating-system temp folder, and preserves the same read-only preview plus explicit restore confirmation used by the CLI. Backup and restore configurations can be uploaded or edited as validated inline JSON; identity mappings are edited in `restore.identity_mappings`, and optional API-native overrides have a separate editor. Backup manifests remain upload-only because they are authoritative restore evidence. Do not bind the UI to a public interface without adding an authenticated deployment boundary.
+The UI is intended for a single trusted operator on the local machine. It uses named AWS profiles, stores uploaded/generated files in a random session directory under the operating-system temp folder, and preserves the same read-only preview plus explicit restore confirmation used by the CLI. Backup and restore configurations can be uploaded and edited inline after safe YAML/JSON normalization, or started from validated JSON templates; identity mappings are edited in `restore.identity_mappings`, and optional API-native overrides have the same upload/edit/template workflow. Edited files can be downloaded before execution. Backup manifests remain upload-only because they are authoritative restore evidence. Do not bind the UI to a public interface without adding an authenticated deployment boundary.
 
 ## Quick Start
 
