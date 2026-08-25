@@ -12,6 +12,7 @@ import uuid
 
 import boto3
 import streamlit as st
+import yaml
 
 from streamlit_app.controllers.backup_controller import BackupController
 from streamlit_app.controllers.restore_controller import RestoreController, RestorePreview
@@ -114,36 +115,61 @@ def _overrides_template() -> str:
 
 
 def _inline_json_file(
+    workspace: SessionWorkspace,
     label: str,
     key: str,
     filename: str,
     template: str,
     help_text: str,
+    formats: tuple[str, ...] = ("JSON", "YAML"),
+    default_format: str = "JSON",
 ) -> InlineFile | None:
-    text = st.text_area(
-        label,
-        value=template,
-        height=420,
-        key=key,
-        help=help_text,
-    )
+    text_area_options: dict[str, Any] = {
+        "label": label,
+        "height": 420,
+        "key": key,
+        "help": help_text,
+    }
+    if key not in st.session_state:
+        text_area_options["value"] = template
+    text = st.text_area(**text_area_options)
     try:
-        json.loads(text)
+        value = json.loads(text)
     except json.JSONDecodeError as error:
         st.error(
             "Invalid JSON at line {0}, column {1}: {2}".format(error.lineno, error.colno, error.msg)
         )
         return None
-    content = text.encode("utf-8")
-    st.download_button(
-        "Download edited {0}".format(filename),
-        data=content,
-        file_name=filename,
-        mime="application/json",
-        key=key + "-download",
-    )
-    st.success("JSON is valid.")
-    return InlineFile(name=filename, content=content)
+    if not isinstance(value, dict):
+        st.error("Configuration JSON must have an object root.")
+        return None
+
+    format_key = key + "_save_format"
+    format_options: dict[str, Any] = {
+        "label": "Save format",
+        "options": formats,
+        "key": format_key,
+    }
+    if format_key not in st.session_state:
+        format_options["index"] = formats.index(default_format)
+    selected_format = st.selectbox(**format_options)
+    stem = Path(filename).stem
+    if selected_format == "YAML":
+        saved_name = stem + ".yaml"
+        content = yaml.safe_dump(value, sort_keys=False).encode("utf-8")
+    else:
+        saved_name = stem + ".json"
+        content = json.dumps(value, indent=2).encode("utf-8")
+
+    if st.button("Save to session workspace", key=key + "_save", width="stretch"):
+        saved_path = workspace.save_upload(saved_name, content)
+        st.session_state[key + "_saved_path"] = str(saved_path)
+    saved_path_value = st.session_state.get(key + "_saved_path")
+    if saved_path_value:
+        st.success("Saved: {0}".format(saved_path_value))
+    else:
+        st.caption("JSON is valid. Save it explicitly or use it directly for this operation.")
+    return InlineFile(name=saved_name, content=content)
 
 
 def _loaded_json_file(
@@ -152,10 +178,13 @@ def _loaded_json_file(
     label: str,
     key: str,
     help_text: str,
+    formats: tuple[str, ...] = ("JSON", "YAML"),
 ) -> InlineFile | None:
     content = upload.getvalue()
     source_digest = sha256(upload.name.encode("utf-8") + content).hexdigest()
     marker = key + "_source_digest"
+    original = Path(upload.name).name
+    original_format = "YAML" if Path(original).suffix.lower() in (".yaml", ".yml") else "JSON"
     if st.session_state.get(marker) != source_digest:
         try:
             st.session_state[key] = workspace.editable_json_text(upload.name, content)
@@ -163,18 +192,19 @@ def _loaded_json_file(
             st.error(str(error))
             return None
         st.session_state[marker] = source_digest
-    original = Path(upload.name).name
-    filename = (
-        original
-        if Path(original).suffix.lower() == ".json"
-        else Path(original).stem + ".edited.json"
-    )
+        st.session_state[key + "_save_format"] = (
+            original_format if original_format in formats else formats[0]
+        )
+        st.session_state.pop(key + "_saved_path", None)
     return _inline_json_file(
+        workspace,
         label,
         key,
-        filename,
+        original,
         st.session_state[key],
         help_text,
+        formats=formats,
+        default_format=original_format if original_format in formats else formats[0],
     )
 
 
@@ -309,6 +339,7 @@ with backup_tab:
             )
     else:
         backup_config = _inline_json_file(
+            workspace,
             "Backup configuration JSON",
             "backup_config_editor",
             "backup-config.json",
@@ -426,6 +457,7 @@ with restore_tab:
             "`restore.identity_mappings` in this JSON."
         )
         restore_config = _inline_json_file(
+            workspace,
             "Target restore configuration JSON",
             "restore_config_editor",
             "restore-config.json",
@@ -456,14 +488,17 @@ with restore_tab:
                 "Loaded API-native overrides JSON",
                 "loaded_restore_overrides_editor",
                 "The edited JSON keeps the uploaded filename so existing overrides_file references work.",
+                formats=("JSON",),
             )
     elif overrides_source == "Edit JSON inline":
         overrides_upload = _inline_json_file(
+            workspace,
             "API-native overrides JSON",
             "restore_overrides_editor",
             "restore-overrides.json",
             _overrides_template(),
             "Set restore.overrides_file to ./restore-overrides.json in the restore config.",
+            formats=("JSON",),
         )
     else:
         overrides_upload = None
