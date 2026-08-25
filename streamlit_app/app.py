@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,128 @@ st.set_page_config(
     page_icon="💾",
     layout="wide",
 )
+
+
+@dataclass(frozen=True)
+class InlineFile:
+    """Small UploadedFile-compatible value produced by an inline JSON editor."""
+
+    name: str
+    content: bytes
+
+    def getvalue(self) -> bytes:
+        return self.content
+
+
+def _backup_template() -> str:
+    token = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return json.dumps(
+        {
+            "aws": {
+                "region": "us-east-1",
+                "identity_region": "us-east-1",
+                "account_id": "111111111111",
+            },
+            "dynamodb": {
+                "users_table_name": "quicksight-{0}-users".format(token),
+                "groups_table_name": "quicksight-{0}-groups".format(token),
+                "users_group_table_name": "quicksight-{0}-memberships".format(token),
+            },
+            "s3": {
+                "bucket_name": "replace-with-existing-backup-bucket",
+                "prefix_format": "YYYY/MM/DD",
+                "prefix": "quicksight-backups",
+            },
+            "backup": {
+                "include_dependencies": True,
+                "include_permissions": True,
+                "include_tags": True,
+                "export_format": "QUICKSIGHT_JSON",
+                "max_assets_per_bundle": 50,
+            },
+            "logging": {"level": "INFO"},
+        },
+        indent=2,
+    )
+
+
+def _restore_template() -> str:
+    return json.dumps(
+        {
+            "source_backup": {"auth": {"profile": "source-profile"}},
+            "target": {
+                "aws_account_id": "222222222222",
+                "asset_region": "us-west-2",
+                "identity_region": "us-west-2",
+                "namespace": "default",
+                "auth": {"profile": "target-profile"},
+            },
+            "restore": {
+                "mode": "full",
+                "restore_identities": True,
+                "conflict_policy": "update",
+                "failure_action": "ROLLBACK",
+                "continue_on_error": False,
+                "poll_timeout_seconds": 1200,
+                "report_directory": "./restore-reports",
+                "validate_target_principals": True,
+                "target_principals": [],
+                "identity_mappings": [],
+            },
+        },
+        indent=2,
+    )
+
+
+def _overrides_template() -> str:
+    return json.dumps(
+        {
+            "OverrideParameters": {
+                "DataSources": [
+                    {
+                        "DataSourceId": "replace-with-datasource-id",
+                        "DataSourceParameters": {
+                            "AthenaParameters": {"WorkGroup": "replace-with-target-workgroup"}
+                        },
+                    }
+                ]
+            }
+        },
+        indent=2,
+    )
+
+
+def _inline_json_file(
+    label: str,
+    key: str,
+    filename: str,
+    template: str,
+    help_text: str,
+) -> InlineFile | None:
+    text = st.text_area(
+        label,
+        value=template,
+        height=420,
+        key=key,
+        help=help_text,
+    )
+    try:
+        json.loads(text)
+    except json.JSONDecodeError as error:
+        st.error(
+            "Invalid JSON at line {0}, column {1}: {2}".format(error.lineno, error.colno, error.msg)
+        )
+        return None
+    content = text.encode("utf-8")
+    st.download_button(
+        "Download edited {0}".format(filename),
+        data=content,
+        file_name=filename,
+        mime="application/json",
+        key=key + "-download",
+    )
+    st.success("JSON is valid.")
+    return InlineFile(name=filename, content=content)
 
 
 def _workspace() -> SessionWorkspace:
@@ -127,11 +251,26 @@ with backup_tab:
     st.subheader("Create backup")
     if not profiles:
         st.error("No named AWS profiles are available on this machine.")
-    backup_config = st.file_uploader(
-        "Backup YAML or JSON configuration",
-        type=["yaml", "yml", "json"],
-        key="backup_config_upload",
+    backup_config_source = st.radio(
+        "Backup configuration source",
+        options=["Upload file", "Edit JSON inline"],
+        horizontal=True,
+        key="backup_config_source",
     )
+    if backup_config_source == "Upload file":
+        backup_config = st.file_uploader(
+            "Backup YAML or JSON configuration",
+            type=["yaml", "yml", "json"],
+            key="backup_config_upload",
+        )
+    else:
+        backup_config = _inline_json_file(
+            "Backup configuration JSON",
+            "backup_config_editor",
+            "backup-config.json",
+            _backup_template(),
+            "Edit account, Region, bucket, and unique DynamoDB table base names before validation.",
+        )
     col_profile, col_mode = st.columns(2)
     with col_profile:
         backup_profile = st.selectbox(
@@ -213,16 +352,53 @@ with restore_tab:
         type=["json"],
         key="restore_manifest_upload",
     )
-    restore_config = st.file_uploader(
-        "Target restore YAML or JSON configuration",
-        type=["yaml", "yml", "json"],
-        key="restore_config_upload",
+    restore_config_source = st.radio(
+        "Restore configuration source",
+        options=["Upload file", "Edit JSON inline"],
+        horizontal=True,
+        key="restore_config_source",
     )
-    overrides_upload = st.file_uploader(
-        "Optional overrides JSON referenced by the configuration",
-        type=["json"],
-        key="restore_overrides_upload",
+    if restore_config_source == "Upload file":
+        restore_config = st.file_uploader(
+            "Target restore YAML or JSON configuration",
+            type=["yaml", "yml", "json"],
+            key="restore_config_upload",
+        )
+    else:
+        st.caption(
+            "Cross-account user/group mappings are edited under "
+            "`restore.identity_mappings` in this JSON."
+        )
+        restore_config = _inline_json_file(
+            "Target restore configuration JSON",
+            "restore_config_editor",
+            "restore-config.json",
+            _restore_template(),
+            "Edit target settings, named profiles, principals, and identity mappings.",
+        )
+
+    overrides_source = st.radio(
+        "Overrides source",
+        options=["None", "Upload file", "Edit JSON inline"],
+        horizontal=True,
+        key="restore_overrides_source",
     )
+    if overrides_source == "Upload file":
+        overrides_upload = st.file_uploader(
+            "Overrides JSON referenced by the configuration",
+            type=["json"],
+            key="restore_overrides_upload",
+        )
+    elif overrides_source == "Edit JSON inline":
+        overrides_upload = _inline_json_file(
+            "API-native overrides JSON",
+            "restore_overrides_editor",
+            "restore-overrides.json",
+            _overrides_template(),
+            "Set restore.overrides_file to ./restore-overrides.json in the restore config.",
+        )
+    else:
+        overrides_upload = None
     selection = _selection_digest(manifest_upload, restore_config, overrides_upload)
     if st.session_state.get("restore_selection") != selection:
         st.session_state.pop("restore_preview", None)
