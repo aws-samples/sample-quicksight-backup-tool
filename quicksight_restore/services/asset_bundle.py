@@ -1,9 +1,9 @@
 """Quick Sight asset bundle import execution with strict terminal accounting."""
 
 from datetime import datetime, timezone
+from secrets import SystemRandom
 from typing import Any, Callable, Dict, List, Optional
 import copy
-import random
 import time
 
 from botocore.exceptions import (
@@ -34,6 +34,8 @@ from ..models.contracts import (
 )
 from ..models.errors import ArchiveValidationError
 from .catalog import LegacyBackupCatalog
+
+_SYSTEM_RANDOM = SystemRandom()
 
 _NONTERMINAL = {
     "QUEUED_FOR_IMMEDIATE_EXECUTION",
@@ -99,7 +101,7 @@ class AssetBundleRestoreService:
         self.quicksight = quicksight_client
         self.sleep = sleep
         self.monotonic = monotonic
-        self.jitter = jitter or (lambda maximum: random.uniform(0.0, maximum))
+        self.jitter = jitter or (lambda maximum: _SYSTEM_RANDOM.uniform(0.0, maximum))
         self.progress_callback = progress_callback
 
     def _emit_progress(self, message: str) -> None:

@@ -89,7 +89,7 @@ def test_loader_requires_explicit_selection_but_accepts_cli_override(tmp_path):
 
 def test_loader_rejects_plaintext_credentials(tmp_path):
     value = base_config(tmp_path)
-    value["target"]["auth"]["password"] = "do-not-store-this"
+    value["target"]["auth"]["password"] = "do-not-store-this"  # nosec B105: rejection fixture
     with pytest.raises(RestoreConfigurationError, match="Plaintext credentials"):
         RestoreConfigLoader().load(str(write_config(tmp_path, value)))
 

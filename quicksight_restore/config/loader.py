@@ -171,7 +171,11 @@ class RestoreConfigLoader:
             )
             text = encoded.decode("utf-8")
             if config_path.suffix.lower() in (".yaml", ".yml"):
-                raw = yaml.load(text, Loader=_UniqueKeySafeLoader)
+                loader = _UniqueKeySafeLoader(text)
+                try:
+                    raw = loader.get_single_data()
+                finally:
+                    loader.dispose()
             else:
                 raw = loads_strict_json(text)
         except RestoreConfigurationError:

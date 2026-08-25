@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 from typing import Dict, Optional
 import hmac
 import json
@@ -167,8 +168,6 @@ class RestoreReportService:
                 # The sidecar is a cooperative ownership protocol. Validation and
                 # replacement are not one conditional filesystem transaction, so
                 # every retry rechecks both ownership and the prior checkpoint.
-                from time import sleep
-
                 replace_attempts = 5
                 retry_delay_seconds = 0.01
                 max_retry_delay_seconds = 0.1
@@ -185,7 +184,7 @@ class RestoreReportService:
                             or attempt == replace_attempts - 1
                         ):
                             raise
-                        sleep(retry_delay_seconds)
+                        Event().wait(timeout=retry_delay_seconds)
                         retry_delay_seconds = min(
                             retry_delay_seconds * 2,
                             max_retry_delay_seconds,
