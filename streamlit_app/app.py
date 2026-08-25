@@ -397,13 +397,188 @@ def _download(path: Path, label: str, key: str) -> None:
         )
 
 
-def _run_status(label: str):
-    status = st.status(label, expanded=True)
+def _queue_operation(kind: str, request: dict[str, Any]) -> None:
+    labels = {
+        "backup_validate": "Backup validation",
+        "backup_run": "Backup",
+        "restore_preview": "Restore preview",
+        "restore_execute": "Restore",
+    }
+    st.session_state.ui_operation = {
+        "kind": kind,
+        "label": labels[kind],
+        "phase": "queued",
+        "request": request,
+        "progress": [],
+        "result": None,
+        "error": None,
+    }
+    st.rerun()
+
+
+def _run_queued_operation(workspace: SessionWorkspace, operation: dict[str, Any]) -> None:
+    operation["phase"] = "running"
+    st.session_state.ui_operation = operation
+    status = st.status(operation["label"] + " in progress", expanded=True)
 
     def progress(message: str) -> None:
+        messages = operation.setdefault("progress", [])
+        messages.append(message)
+        if len(messages) > 500:
+            del messages[:-500]
+        st.session_state.ui_operation = operation
         status.write(message)
 
-    return status, progress
+    try:
+        request = operation["request"]
+        kind = operation["kind"]
+        if kind == "backup_validate":
+            BackupController(progress).dry_run(
+                Path(request["config_path"]),
+                request["profile"],
+                request["mode"],
+            )
+            operation["result"] = {
+                "message": "Configuration, credentials, connectivity, and prerequisites passed."
+            }
+        elif kind == "backup_run":
+            execution = BackupController(progress).run(
+                Path(request["config_path"]),
+                request["profile"],
+                request["mode"],
+                Path(request["output_directory"]),
+            )
+            operation["result"] = {
+                "rows": _backup_rows(execution.report.resource_counts),
+                "totals": dict(execution.report.resource_totals),
+                "has_failures": execution.report.has_failures,
+                "manifest_path": str(execution.manifest_path),
+                "report_path": str(execution.report_path),
+            }
+            st.session_state.latest_backup_manifest = str(execution.manifest_path)
+        elif kind == "restore_preview":
+            preview = RestoreController(progress).preview(
+                Path(request["config_path"]),
+                Path(request["manifest_path"]),
+                Path(request["plan_path"]),
+            )
+            preview_value = preview.to_dict()
+            st.session_state.restore_preview = preview_value
+            st.session_state.restore_paths = {
+                "config": request["config_path"],
+                "manifest": request["manifest_path"],
+                "plan": request["plan_path"],
+            }
+            operation["result"] = {
+                "message": "Restore preview is ready. No target resources were changed.",
+                "preview": preview_value,
+            }
+        elif kind == "restore_execute":
+            execution = RestoreController(progress).execute(
+                Path(request["config_path"]),
+                Path(request["manifest_path"]),
+                Path(request["plan_path"]),
+            )
+            registered = 0
+            if execution.report.identity_result:
+                registered = sum(
+                    1
+                    for item in execution.report.identity_result.results
+                    if item.identity_kind == "user" and item.action == "registered"
+                )
+            operation["result"] = {
+                "overall_status": execution.report.overall_status,
+                "rows": _restore_rows(execution.report.summary.get("resource_counts", {})),
+                "registered_users": registered,
+                "report_path": str(execution.report_path),
+            }
+            st.session_state.restore_report = str(execution.report_path)
+        else:
+            raise ValueError("unsupported UI operation")
+        operation["phase"] = "succeeded"
+        status.update(label=operation["label"] + " completed", state="complete")
+    except Exception as error:
+        operation["phase"] = "failed"
+        operation["error"] = "{0}: {1}".format(type(error).__name__, error)
+        status.update(label=operation["label"] + " failed", state="error")
+    finally:
+        st.session_state.ui_operation = operation
+
+
+def _handle_operation_gate(workspace: SessionWorkspace) -> None:
+    operation = st.session_state.get("ui_operation")
+    if not operation:
+        return
+    phase = operation.get("phase")
+    if phase == "queued":
+        operation["phase"] = "locked"
+        st.session_state.ui_operation = operation
+        st.info("Preparing {0}. Controls are locked until it finishes.".format(operation["label"]))
+        st.rerun()
+    if phase == "locked":
+        _run_queued_operation(workspace, operation)
+        st.rerun()
+    if phase == "running":
+        st.warning("This operation is already running. Keep this page open while it finishes.")
+        for message in operation.get("progress", []):
+            st.write(message)
+        st.stop()
+
+
+def _render_operation_result(scope: str) -> None:
+    operation = st.session_state.get("ui_operation")
+    if not operation or not operation.get("kind", "").startswith(scope + "_"):
+        return
+    if operation.get("phase") not in ("succeeded", "failed"):
+        return
+
+    failed = operation["phase"] == "failed"
+    with st.status(
+        operation["label"] + (" failed" if failed else " completed"),
+        state="error" if failed else "complete",
+        expanded=failed,
+    ) as status:
+        for message in operation.get("progress", []):
+            status.write(message)
+    if failed:
+        st.error(operation.get("error") or "Operation failed.")
+        return
+
+    result = operation.get("result") or {}
+    kind = operation["kind"]
+    if kind == "restore_execute":
+        st.session_state.pop("restore_confirmation", None)
+    if kind == "backup_validate":
+        st.success(result["message"])
+    elif kind == "backup_run":
+        st.dataframe(result["rows"], width="stretch", hide_index=True)
+        st.metric("Successful resources", result["totals"].get("successful", 0))
+        if result["has_failures"]:
+            st.error("Backup completed with failures. Review the report before restore.")
+        else:
+            st.success("Backup completed without failures.")
+        _download(Path(result["manifest_path"]), "Download restore manifest", "backup-manifest")
+        _download(Path(result["report_path"]), "Download backup report", "backup-report")
+    elif kind == "restore_preview":
+        st.success(result["message"])
+    elif kind == "restore_execute":
+        success = result["overall_status"] == "success"
+        st.dataframe(result["rows"], width="stretch", hide_index=True)
+        if success:
+            st.success("Restore completed successfully.")
+        else:
+            st.error(
+                "Restore ended as {0}. Review the report before retrying.".format(
+                    result["overall_status"]
+                )
+            )
+        if result["registered_users"]:
+            st.warning(
+                "{0} user(s) were registered. Quick-native users remain inactive until an "
+                "administrator uses Manage Quick > Manage users > Resend invitation and each "
+                "user signs in once.".format(result["registered_users"])
+            )
+        _download(Path(result["report_path"]), "Download restore report", "restore-report")
 
 
 workspace = _workspace()
@@ -480,6 +655,7 @@ if workspace is None:
             st.exception(error)
     st.stop()
 
+_handle_operation_gate(workspace)
 profiles = _profiles()
 workspace_tab, backup_tab, restore_tab, history_tab = st.tabs(
     ["Workspace", "Backup", "Restore", "History"]
@@ -499,6 +675,7 @@ with backup_tab:
             ("Backup usage", "#usage"),
         ),
     )
+    _render_operation_result("backup")
     if not profiles:
         st.error("No named AWS profiles are available on this machine.")
     backup_config_source = st.radio(
@@ -587,46 +764,23 @@ with backup_tab:
         )
 
     if backup_dry_run or backup_execute:
-        status = None
         try:
-            config_path = workspace.save_upload(backup_config.name, backup_config.getvalue())
-            status, progress = _run_status(
-                "Validating backup" if backup_dry_run else "Running backup"
+            config_path = workspace.save_upload(
+                backup_config.name,
+                backup_config.getvalue(),
             )
-            controller = BackupController(progress)
-            if backup_dry_run:
-                controller.dry_run(config_path, backup_profile, backup_mode)
-                status.update(label="Backup validation passed", state="complete")
-                st.success("Configuration, credentials, connectivity, and prerequisites passed.")
-            else:
-                output_directory = workspace.new_backup_directory()
-                execution = controller.run(
-                    config_path,
-                    backup_profile,
-                    backup_mode,
-                    output_directory,
-                )
-                status.update(
-                    label="Backup completed",
-                    state="complete" if not execution.report.has_failures else "error",
-                )
-                st.dataframe(
-                    _backup_rows(execution.report.resource_counts),
-                    width="stretch",
-                    hide_index=True,
-                )
-                totals = execution.report.resource_totals
-                st.metric("Successful resources", totals.get("successful", 0))
-                if execution.report.has_failures:
-                    st.error("Backup completed with failures. Review the report before restore.")
-                else:
-                    st.success("Backup completed without failures.")
-                _download(execution.manifest_path, "Download restore manifest", "backup-manifest")
-                _download(execution.report_path, "Download backup report", "backup-report")
-                st.session_state.latest_backup_manifest = str(execution.manifest_path)
+            request = {
+                "config_path": str(config_path),
+                "profile": backup_profile,
+                "mode": backup_mode,
+            }
+            if backup_execute:
+                request["output_directory"] = str(workspace.new_backup_directory())
+            _queue_operation(
+                "backup_run" if backup_execute else "backup_validate",
+                request,
+            )
         except Exception as error:
-            if status is not None:
-                status.update(label="Backup failed", state="error")
             st.exception(error)
 
 with restore_tab:
@@ -785,15 +939,18 @@ with restore_tab:
         st.session_state.pop("restore_preview", None)
         st.session_state.pop("restore_paths", None)
         st.session_state.pop("restore_report", None)
+        operation = st.session_state.get("ui_operation")
+        if operation and operation.get("kind", "").startswith("restore_"):
+            st.session_state.pop("ui_operation", None)
         st.session_state.restore_selection = selection
 
+    _render_operation_result("restore")
     restore_ready = manifest_upload is not None and restore_config is not None
     if st.button(
         "Preview restore (read-only)",
         disabled=not restore_ready,
         width="stretch",
     ):
-        status = None
         try:
             uploads = [
                 upload
@@ -806,25 +963,26 @@ with restore_tab:
                     "manifest, config, and overrides uploads must have unique filenames"
                 )
             _save_uploads(workspace, overrides_upload)
-            manifest_path = workspace.save_upload(manifest_upload.name, manifest_upload.getvalue())
-            config_path = workspace.save_upload(restore_config.name, restore_config.getvalue())
-            plan_path = workspace.new_plan_path(config_path)
-            status, progress = _run_status("Building read-only restore preview")
-            preview = RestoreController(progress).preview(
-                config_path,
-                manifest_path,
-                plan_path,
+            manifest_path = workspace.save_upload(
+                manifest_upload.name,
+                manifest_upload.getvalue(),
             )
-            status.update(label="Restore preview ready", state="complete")
-            st.session_state.restore_preview = preview.to_dict()
-            st.session_state.restore_paths = {
-                "config": str(config_path),
-                "manifest": str(manifest_path),
-                "plan": str(plan_path),
-            }
+            config_path = workspace.save_upload(
+                restore_config.name,
+                restore_config.getvalue(),
+            )
+            plan_path = workspace.new_plan_path(config_path)
+            st.session_state.pop("restore_preview", None)
+            st.session_state.pop("restore_paths", None)
+            _queue_operation(
+                "restore_preview",
+                {
+                    "config_path": str(config_path),
+                    "manifest_path": str(manifest_path),
+                    "plan_path": str(plan_path),
+                },
+            )
         except Exception as error:
-            if status is not None:
-                status.update(label="Restore preview failed", state="error")
             st.exception(error)
 
     preview_value = st.session_state.get("restore_preview")
@@ -861,50 +1019,18 @@ with restore_tab:
             width="stretch",
         )
         if execute_restore:
-            status = None
             try:
                 paths = st.session_state.restore_paths
-                status, progress = _run_status("Executing restore")
-                execution = RestoreController(progress).execute(
-                    Path(paths["config"]),
-                    Path(paths["manifest"]),
-                    Path(paths["plan"]),
+                st.session_state.pop("restore_report", None)
+                _queue_operation(
+                    "restore_execute",
+                    {
+                        "config_path": paths["config"],
+                        "manifest_path": paths["manifest"],
+                        "plan_path": paths["plan"],
+                    },
                 )
-                success = execution.report.overall_status == "success"
-                status.update(
-                    label="Restore {0}".format(execution.report.overall_status),
-                    state="complete" if success else "error",
-                )
-                st.dataframe(
-                    _restore_rows(execution.report.summary.get("resource_counts", {})),
-                    width="stretch",
-                    hide_index=True,
-                )
-                if success:
-                    st.success("Restore completed successfully.")
-                else:
-                    st.error(
-                        "Restore ended as {0}. Review the report before retrying.".format(
-                            execution.report.overall_status
-                        )
-                    )
-                if execution.report.identity_result:
-                    registered = sum(
-                        1
-                        for item in execution.report.identity_result.results
-                        if item.identity_kind == "user" and item.action == "registered"
-                    )
-                    if registered:
-                        st.warning(
-                            "{0} user(s) were registered. Quick-native users remain inactive "
-                            "until an administrator uses Manage Quick > Manage users > Resend "
-                            "invitation and each user signs in once.".format(registered)
-                        )
-                _download(execution.report_path, "Download restore report", "restore-report")
-                st.session_state.restore_report = str(execution.report_path)
             except Exception as error:
-                if status is not None:
-                    status.update(label="Restore failed", state="error")
                 st.exception(error)
 
 with history_tab:
