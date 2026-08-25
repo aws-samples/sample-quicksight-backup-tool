@@ -1,6 +1,6 @@
 # Amazon Quick Sight Backup Process Flow Diagram
 
-This document provides detailed process flow diagrams for the Amazon Quick Sight Backup Tool. These diagrams illustrate the backup workflow, error handling procedures, asset discovery process, and storage operations to help developers understand the tool's internal operations.
+This document provides process-flow diagrams for the Amazon Quick Sight Backup Tool. The CLI and local Streamlit UI both delegate to the same backup orchestrator and services; the UI adds workspace persistence and guarded progress tracking but does not change backend backup behavior.
 
 ## Overview Diagram
 
@@ -8,7 +8,7 @@ The following diagram illustrates the complete backup process from initial CLI i
 
 ```mermaid
 flowchart TD
-    A[User Runs CLI Command] --> B[Load Configuration File]
+    A[User Starts CLI or Streamlit Backup] --> B[Load Configuration File]
     B --> C{Configuration Valid?}
     C -->|No| D[Exit with Error]
     C -->|Yes| E[Initialize AWS Clients]
@@ -65,6 +65,26 @@ flowchart TD
     style HH fill:#e8f5e8
 ```
 
+## Streamlit operation tracking
+
+The Streamlit UI snapshots the selected configuration, profile, mode, and workspace paths before starting a controller. Operations move through `queued` → `locked` → `running` → `succeeded`/`failed` state in the current Streamlit session.
+
+```mermaid
+flowchart TD
+    A[User selects Validate or Run] --> B[Save immutable operation inputs in workspace]
+    B --> C[Queue operation in session state]
+    C --> D[Replace interactive tabs with progress-only view]
+    D --> E[Run existing BackupController synchronously]
+    E --> F{Outcome}
+    F -->|Success| G[Persist progress, counts, manifest, and report paths]
+    F -->|Failure| H[Persist progress and error]
+    G --> I[Return to Backup tab and reload saved config/profile/mode]
+    H --> I
+    I --> J[Reconstruct result after ordinary widget reruns]
+```
+
+This guard prevents editor-save, workspace, archive, and other widget events from superseding the script run that owns live operation tracking. It is not a distributed worker or restart-resume mechanism: keep the page open until the controller finishes.
+
 ## Detailed Error Handling Process
 
 ```mermaid
@@ -80,7 +100,7 @@ flowchart TD
     E -->|Resource Not Found| I[Log Warning & Continue]
     E -->|Configuration Error| J[Exit with Config Error]
     
-    F --> K{Retry Count < 3?}
+    F --> K{Retry Budget Remaining?}
     H --> K
     K -->|Yes| L[Wait for Backoff Period]
     K -->|No| M[Log Final Error]
@@ -162,7 +182,7 @@ flowchart TD
     
     F --> L[Upload File to S3]
     L --> M{Upload Successful?}
-    M -->|No| N{Retry Count < 3?}
+    M -->|No| N{Retry Budget Remaining?}
     N -->|Yes| O[Wait & Retry]
     O --> F
     N -->|No| P[Log Upload Error]
@@ -239,21 +259,21 @@ flowchart TD
 - **Permission Validation**: Verify access to assets before including in export
 
 ### 3. Error Handling Strategies
-- **Rate Limiting**: Exponential backoff with jitter (max 3 retries)
-- **Network Errors**: Retry with backoff (max 3 retries)
+- **Rate Limiting**: Bounded retries with exponential backoff
+- **Network Errors**: Bounded retries with backoff
 - **Permission Errors**: Log and continue with accessible resources
 - **Resource Not Found**: Log warning and continue
 
 ### 4. Retry Logic
-- **API Calls**: Maximum 3 retries with exponential backoff
-- **File Uploads**: Maximum 3 retries for network-related failures
-- **Database Operations**: Maximum 3 retries for throttling errors
+- **API calls**: Service-specific bounded retries and backoff
+- **File uploads**: Retry retryable network/service failures; abort multipart uploads on terminal failure
+- **Database operations**: Retry throttling and unprocessed batch writes
 
 ### 5. Output Generation
 - **Manifest File**: Always generated (JSON format)
 - **Report File**: Always generated (human-readable text)
 - **Log Files**: Generated based on configuration
-- **Progress Indicators**: Disabled in batch mode (`--no-progress`)
+- **Progress**: CLI logs to the console; Streamlit persists up to 500 recent progress messages and reconstructs completion/failure status after normal reruns
 
 ## Execution Times
 

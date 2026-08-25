@@ -502,7 +502,11 @@ def _run_queued_operation(workspace: SessionWorkspace, operation: dict[str, Any]
         operation["error"] = "{0}: {1}".format(type(error).__name__, error)
         status.update(label=operation["label"] + " failed", state="error")
     finally:
+        operation["restore_controls"] = True
         st.session_state.ui_operation = operation
+        st.session_state.ui_default_tab = (
+            "Backup" if operation["kind"].startswith("backup_") else "Restore"
+        )
 
 
 def _handle_operation_gate(workspace: SessionWorkspace) -> None:
@@ -525,6 +529,30 @@ def _handle_operation_gate(workspace: SessionWorkspace) -> None:
         st.stop()
 
 
+def _restore_operation_controls(operation: dict[str, Any]) -> None:
+    if operation.get("controls_restored"):
+        return
+    operation.pop("restore_controls", None)
+    request = operation["request"]
+    kind = operation["kind"]
+    if kind.startswith("backup_"):
+        st.session_state.backup_config_source = "Workspace file"
+        st.session_state.workspace_backup_config = Path(request["config_path"])
+        st.session_state.backup_profile = request["profile"]
+        st.session_state.backup_mode = request["mode"]
+    elif kind.startswith("restore_"):
+        st.session_state.restore_manifest_source = "Workspace file"
+        st.session_state.workspace_restore_manifest = Path(request["manifest_path"])
+        st.session_state.restore_config_source = "Workspace file"
+        st.session_state.workspace_restore_config = Path(request["config_path"])
+        overrides_path = request.get("overrides_path")
+        if overrides_path:
+            st.session_state.restore_overrides_source = "Workspace file"
+            st.session_state.workspace_restore_overrides = Path(overrides_path)
+    operation["controls_restored"] = True
+    st.session_state.ui_operation = operation
+
+
 def _render_operation_result(scope: str) -> None:
     operation = st.session_state.get("ui_operation")
     if not operation or not operation.get("kind", "").startswith(scope + "_"):
@@ -532,6 +560,7 @@ def _render_operation_result(scope: str) -> None:
     if operation.get("phase") not in ("succeeded", "failed"):
         return
 
+    _restore_operation_controls(operation)
     failed = operation["phase"] == "failed"
     with st.status(
         operation["label"] + (" failed" if failed else " completed"),
@@ -657,8 +686,10 @@ if workspace is None:
 
 _handle_operation_gate(workspace)
 profiles = _profiles()
+default_tab = st.session_state.pop("ui_default_tab", "Workspace")
 workspace_tab, backup_tab, restore_tab, history_tab = st.tabs(
-    ["Workspace", "Backup", "Restore", "History"]
+    ["Workspace", "Backup", "Restore", "History"],
+    default=default_tab,
 )
 
 with backup_tab:
@@ -797,6 +828,7 @@ with restore_tab:
             ("Restore security and limitations", "#restore-security-and-limitations"),
         ),
     )
+    _render_operation_result("restore")
     manifest_source = st.radio(
         "Backup manifest source",
         options=["Upload file", "Workspace file"],
@@ -944,7 +976,6 @@ with restore_tab:
             st.session_state.pop("ui_operation", None)
         st.session_state.restore_selection = selection
 
-    _render_operation_result("restore")
     restore_ready = manifest_upload is not None and restore_config is not None
     if st.button(
         "Preview restore (read-only)",
@@ -962,7 +993,7 @@ with restore_tab:
                 raise ValueError(
                     "manifest, config, and overrides uploads must have unique filenames"
                 )
-            _save_uploads(workspace, overrides_upload)
+            override_paths = _save_uploads(workspace, overrides_upload)
             manifest_path = workspace.save_upload(
                 manifest_upload.name,
                 manifest_upload.getvalue(),
@@ -974,14 +1005,14 @@ with restore_tab:
             plan_path = workspace.new_plan_path(config_path)
             st.session_state.pop("restore_preview", None)
             st.session_state.pop("restore_paths", None)
-            _queue_operation(
-                "restore_preview",
-                {
-                    "config_path": str(config_path),
-                    "manifest_path": str(manifest_path),
-                    "plan_path": str(plan_path),
-                },
-            )
+            request = {
+                "config_path": str(config_path),
+                "manifest_path": str(manifest_path),
+                "plan_path": str(plan_path),
+            }
+            if override_paths:
+                request["overrides_path"] = str(override_paths[0])
+            _queue_operation("restore_preview", request)
         except Exception as error:
             st.exception(error)
 
