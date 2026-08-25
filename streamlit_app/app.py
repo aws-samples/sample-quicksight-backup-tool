@@ -336,14 +336,14 @@ with backup_tab:
         backup_dry_run = st.button(
             "Validate backup",
             disabled=not backup_ready,
-            use_container_width=True,
+            width="stretch",
         )
     with run_col:
         backup_execute = st.button(
             "Run backup",
             type="primary",
             disabled=not backup_ready,
-            use_container_width=True,
+            width="stretch",
         )
 
     if backup_dry_run or backup_execute:
@@ -372,7 +372,7 @@ with backup_tab:
                 )
                 st.dataframe(
                     _backup_rows(execution.report.resource_counts),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
                 totals = execution.report.resource_totals
@@ -478,7 +478,7 @@ with restore_tab:
     if st.button(
         "Preview restore (read-only)",
         disabled=not restore_ready,
-        use_container_width=True,
+        width="stretch",
     ):
         status = None
         try:
@@ -531,7 +531,7 @@ with restore_tab:
                     for action, count in preview.action_counts.items()
                 )
             )
-        st.dataframe(_preview_rows(preview), use_container_width=True, hide_index=True)
+        st.dataframe(_preview_rows(preview), width="stretch", hide_index=True)
         if preview.warnings:
             with st.expander("Reviewed warnings", expanded=True):
                 for warning in preview.warnings:
@@ -545,7 +545,7 @@ with restore_tab:
             "Execute restore",
             type="primary",
             disabled=confirmation != "RESTORE",
-            use_container_width=True,
+            width="stretch",
         )
         if execute_restore:
             status = None
@@ -564,7 +564,7 @@ with restore_tab:
                 )
                 st.dataframe(
                     _restore_rows(execution.report.summary.get("resource_counts", {})),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
                 if success:
