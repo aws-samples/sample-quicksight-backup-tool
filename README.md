@@ -75,6 +75,17 @@ cd quicksight-backup-tool
 pip install -e ".[dev]"
 ```
 
+### Local web interface (optional)
+
+The Streamlit UI requires Python 3.10 or later and is installed separately so CLI-only environments do not receive web dependencies:
+
+```bash
+pip install -e ".[web]"
+streamlit run streamlit_app/app.py --server.address 127.0.0.1
+```
+
+The UI is intended for a single trusted operator on the local machine. It uses named AWS profiles, stores uploaded/generated files in a random session directory under the operating-system temp folder, and preserves the same read-only preview plus explicit restore confirmation used by the CLI. Do not bind it to a public interface without adding an authenticated deployment boundary.
+
 ## Quick Start
 
 > **Prerequisites**: Before starting, complete all items in the [Prerequisites](#prerequisites) section above, including Python 3.8+, AWS CLI configuration, required IAM permissions, and Amazon Quick Sight Enterprise edition.
