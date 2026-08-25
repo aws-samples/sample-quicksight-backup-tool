@@ -22,6 +22,8 @@ _MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 _MAX_ARCHIVE_ENTRIES = 500
 _MAX_ARCHIVE_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
 _WORKSPACE_SCHEMA_VERSION = "1.0"
+_WORKSPACE_MARKER = ".quicksight-workspace.json"
+_WINDOWS_REPARSE_ATTRIBUTE = 0x400
 _FORBIDDEN_UPLOAD_KEYS = {
     "accesskeyid",
     "awsaccesskeyid",
@@ -46,25 +48,139 @@ class LocalArtifact:
 
 
 class SessionWorkspace:
-    """Own files beneath one random directory in the operating-system temp area."""
+    """Own files beneath one validated temporary or persistent local directory."""
 
-    def __init__(self, session_id: str, base_directory: Optional[Path] = None):
+    def __init__(
+        self,
+        session_id: str,
+        base_directory: Optional[Path] = None,
+        root_directory: Optional[Path] = None,
+        require_marker: bool = False,
+    ):
         if not _SESSION_RE.fullmatch(session_id):
             raise ValueError("session_id must be a 32-character lowercase hexadecimal value")
-        base = base_directory or Path(tempfile.gettempdir()) / "quicksight-backup-tool-ui"
-        self.root = (base / session_id).resolve()
+        if root_directory is None:
+            base = base_directory or Path(tempfile.gettempdir()) / "quicksight-backup-tool-ui"
+            raw_root = base / session_id
+        else:
+            raw_root = root_directory
+        self._reject_reparse_components(raw_root)
+        self.root = raw_root.expanduser().absolute()
+        if self.root.exists() and not self.root.is_dir():
+            raise ValueError("workspace path must be a directory")
+        self.root.mkdir(parents=True, exist_ok=True)
+        self._session_id = session_id
         self.inputs = self.root / "inputs"
         self.backups = self.root / "backup-runs"
         for directory in (self.inputs, self.backups):
             directory.mkdir(parents=True, exist_ok=True)
+        marker = self.root / _WORKSPACE_MARKER
+        if marker.exists():
+            self._validate_marker(marker, expected_session_id=session_id)
+        elif require_marker:
+            raise ValueError("folder is not a Quick Sight backup UI workspace")
+        else:
+            self._write_marker(marker)
+        self._validate_workspace_tree()
+
+    def _validate_workspace_tree(self) -> None:
+        files = 0
+        total = 0
+        for path in self.root.rglob("*"):
+            stat = path.lstat()
+            attributes = int(getattr(stat, "st_file_attributes", 0))
+            if path.is_symlink() or attributes & _WINDOWS_REPARSE_ATTRIBUTE:
+                raise ValueError("workspace contents must not include symlinks or reparse points")
+            if not path.is_file():
+                continue
+            files += 1
+            total += stat.st_size
+            if files > _MAX_ARCHIVE_ENTRIES:
+                raise ValueError("workspace contains too many files")
+            if total > _MAX_ARCHIVE_UNCOMPRESSED_BYTES:
+                raise ValueError("workspace exceeds the 256 MiB size limit")
+            if path.name == _WORKSPACE_MARKER:
+                continue
+            if path.suffix.lower() not in _SAFE_SUFFIXES | {".zip"}:
+                raise ValueError("workspace contains an unsupported file type")
+
+    @staticmethod
+    def _reject_reparse_components(path: Path) -> None:
+        raw = path.expanduser().absolute()
+        current = Path(raw.anchor) if raw.anchor else Path()
+        for part in raw.parts[1:] if raw.anchor else raw.parts:
+            current = current / part
+            if not current.exists():
+                continue
+            stat = current.lstat()
+            attributes = int(getattr(stat, "st_file_attributes", 0))
+            if current.is_symlink() or attributes & _WINDOWS_REPARSE_ATTRIBUTE:
+                raise ValueError("workspace path must not contain symlinks or reparse points")
+
+    @staticmethod
+    def _read_marker(marker: Path) -> dict[str, Any]:
+        if not marker.is_file() or marker.is_symlink():
+            raise ValueError("workspace marker must be a regular file")
+        try:
+            value = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError) as error:
+            raise ValueError("workspace marker is invalid") from error
+        if not isinstance(value, dict) or value.get("schema_version") != _WORKSPACE_SCHEMA_VERSION:
+            raise ValueError("workspace marker schema is missing or unsupported")
+        workspace_id = value.get("workspace_id")
+        if not isinstance(workspace_id, str) or not _SESSION_RE.fullmatch(workspace_id):
+            raise ValueError("workspace marker ID is invalid")
+        return value
+
+    @classmethod
+    def _validate_marker(cls, marker: Path, expected_session_id: str) -> None:
+        value = cls._read_marker(marker)
+        if value["workspace_id"] != expected_session_id:
+            raise ValueError("workspace marker ID does not match the selected session")
+
+    def _write_marker(self, marker: Path) -> None:
+        value = {
+            "schema_version": _WORKSPACE_SCHEMA_VERSION,
+            "workspace_id": self._session_id,
+        }
+        temporary = marker.with_suffix(marker.suffix + ".tmp")
+        temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(marker)
 
     @classmethod
     def create(cls) -> "SessionWorkspace":
         return cls(uuid.uuid4().hex)
 
+    @classmethod
+    def create_folder(cls, path: Path) -> "SessionWorkspace":
+        """Create a persistent workspace in a new or empty explicit folder."""
+        cls._reject_reparse_components(path)
+        root = path.expanduser().absolute()
+        if root.exists() and not root.is_dir():
+            raise ValueError("workspace path must be a directory")
+        if root.exists():
+            entries = list(root.iterdir())
+            marker = root / _WORKSPACE_MARKER
+            if entries and not marker.exists():
+                raise ValueError("refusing to create a workspace in a nonempty unmarked folder")
+            if marker.exists():
+                value = cls._read_marker(marker)
+                return cls(value["workspace_id"], root_directory=root, require_marker=True)
+        return cls(uuid.uuid4().hex, root_directory=root)
+
+    @classmethod
+    def open_folder(cls, path: Path) -> "SessionWorkspace":
+        """Open an existing persistent workspace identified by its marker."""
+        cls._reject_reparse_components(path)
+        root = path.expanduser().absolute()
+        if not root.is_dir():
+            raise ValueError("workspace folder does not exist")
+        value = cls._read_marker(root / _WORKSPACE_MARKER)
+        return cls(value["workspace_id"], root_directory=root, require_marker=True)
+
     @property
     def session_id(self) -> str:
-        return self.root.name
+        return self._session_id
 
     @staticmethod
     def _canonical_key(value: Any) -> str:
@@ -194,7 +310,11 @@ class SessionWorkspace:
             if not path.is_file() or path.is_symlink():
                 continue
             relative = path.relative_to(self.root)
-            if "plans" in relative.parts or path.suffix.lower() in (".tmp", ".zip"):
+            if (
+                relative.as_posix() == _WORKSPACE_MARKER
+                or "plans" in relative.parts
+                or path.suffix.lower() in (".tmp", ".zip")
+            ):
                 continue
             total += path.stat().st_size
             if total > _MAX_ARCHIVE_UNCOMPRESSED_BYTES:
@@ -298,6 +418,7 @@ class SessionWorkspace:
             temporary = destination.with_suffix(destination.suffix + ".tmp")
             temporary.write_bytes(data)
             temporary.replace(destination)
+        workspace._validate_workspace_tree()
         return workspace
 
     def artifacts(self) -> list[LocalArtifact]:

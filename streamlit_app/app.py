@@ -273,9 +273,24 @@ def _workspace_file(
 
 
 def _workspace() -> SessionWorkspace:
+    workspace_path = st.session_state.get("ui_workspace_path")
+    if workspace_path:
+        try:
+            return SessionWorkspace.open_folder(Path(workspace_path))
+        except ValueError as error:
+            st.session_state.workspace_open_error = str(error)
+            st.session_state.pop("ui_workspace_path", None)
     if "ui_session_id" not in st.session_state:
         st.session_state.ui_session_id = uuid.uuid4().hex
     return SessionWorkspace(st.session_state.ui_session_id)
+
+
+def _switch_workspace(selected: SessionWorkspace) -> None:
+    for state_key in list(st.session_state):
+        del st.session_state[state_key]
+    st.session_state.ui_session_id = selected.session_id
+    st.session_state.ui_workspace_path = str(selected.root)
+    st.rerun()
 
 
 def _profiles() -> list[str]:
@@ -360,6 +375,9 @@ def _run_status(label: str):
 
 workspace = _workspace()
 profiles = _profiles()
+workspace_open_error = st.session_state.pop("workspace_open_error", None)
+if workspace_open_error:
+    st.warning("Could not reopen the selected workspace: {0}".format(workspace_open_error))
 
 st.title("Quick Sight Backup & Restore")
 st.caption(
@@ -797,11 +815,33 @@ with history_tab:
             )
 
 with workspace_tab:
-    st.subheader("Save or restore workspace")
+    st.subheader("Local workspace folder")
     st.caption(
-        "Workspace archives include configs, manifests, overrides, backup outputs, and reports. "
-        "Internal plans and temporary files are excluded and regenerated from a fresh preview."
+        "Streamlit cannot open a native server-side folder picker. Enter an explicit local "
+        "folder path, then create a new workspace or open one containing a valid marker."
     )
+    st.code(str(workspace.root), language=None)
+    folder_path = st.text_input(
+        "Workspace folder path",
+        value=str(workspace.root),
+        key="workspace_folder_path",
+    )
+    create_col, open_col = st.columns(2)
+    with create_col:
+        create_folder = st.button("Create workspace folder", width="stretch")
+    with open_col:
+        open_folder = st.button("Open workspace folder", width="stretch")
+    if create_folder or open_folder:
+        try:
+            selected = (
+                SessionWorkspace.create_folder(Path(folder_path))
+                if create_folder
+                else SessionWorkspace.open_folder(Path(folder_path))
+            )
+            _switch_workspace(selected)
+        except Exception as error:
+            st.exception(error)
+
     role_counts = {
         role: len(workspace.files_for(role))
         for role in ("backup_config", "manifest", "restore_config", "overrides")
@@ -812,36 +852,38 @@ with workspace_tab:
     metrics[2].metric("Restore configs", role_counts["restore_config"])
     metrics[3].metric("Overrides", role_counts["overrides"])
 
-    if st.button("Save workspace archive", width="stretch"):
-        try:
-            archive_path = workspace.export_archive()
-            st.session_state.workspace_archive_path = str(archive_path)
-        except Exception as error:
-            st.exception(error)
-    archive_path_value = st.session_state.get("workspace_archive_path")
-    if archive_path_value:
-        st.success("Workspace archive saved: {0}".format(archive_path_value))
+    with st.expander("Archive workspace (optional)"):
+        st.caption(
+            "ZIP archives are intended only for portability to another machine. Plans and "
+            "temporary files are excluded and regenerated through a fresh preview."
+        )
+        if st.button("Save workspace archive", width="stretch"):
+            try:
+                archive_path = workspace.export_archive()
+                st.session_state.workspace_archive_path = str(archive_path)
+            except Exception as error:
+                st.exception(error)
+        archive_path_value = st.session_state.get("workspace_archive_path")
+        if archive_path_value:
+            st.success("Workspace archive saved: {0}".format(archive_path_value))
 
-    archive_upload = st.file_uploader(
-        "Restore workspace archive",
-        type=["zip"],
-        key="workspace_archive_upload",
-        help="The archive is fully validated before files are extracted into a new session.",
-    )
-    if st.button(
-        "Restore workspace",
-        type="primary",
-        disabled=archive_upload is None,
-        width="stretch",
-    ):
-        try:
-            restored_workspace = SessionWorkspace.restore_archive(archive_upload.getvalue())
-            for state_key in list(st.session_state):
-                del st.session_state[state_key]
-            st.session_state.ui_session_id = restored_workspace.session_id
-            st.rerun()
-        except Exception as error:
-            st.exception(error)
+        archive_upload = st.file_uploader(
+            "Restore workspace archive",
+            type=["zip"],
+            key="workspace_archive_upload",
+            help="The archive is fully validated before files are extracted into a new session.",
+        )
+        if st.button(
+            "Restore workspace archive",
+            type="primary",
+            disabled=archive_upload is None,
+            width="stretch",
+        ):
+            try:
+                restored_workspace = SessionWorkspace.restore_archive(archive_upload.getvalue())
+                _switch_workspace(restored_workspace)
+            except Exception as error:
+                st.exception(error)
 
 st.divider()
-st.caption("Session workspace: {0}".format(workspace.root))
+st.caption("Workspace: {0}".format(workspace.root))
