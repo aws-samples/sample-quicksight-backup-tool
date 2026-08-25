@@ -8,7 +8,6 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 import json
-import uuid
 
 import boto3
 import streamlit as st
@@ -272,27 +271,35 @@ def _workspace_file(
     return InlineFile(name=selected.name, content=selected.read_bytes())
 
 
-def _workspace() -> SessionWorkspace:
+def _workspace() -> SessionWorkspace | None:
     workspace_path = st.session_state.get("ui_workspace_path")
-    if workspace_path:
-        try:
-            return SessionWorkspace.open_folder(Path(workspace_path))
-        except ValueError as error:
-            st.session_state.workspace_open_error = str(error)
-            st.session_state.pop("ui_workspace_path", None)
-    if "ui_session_id" not in st.session_state:
-        st.session_state.ui_session_id = uuid.uuid4().hex
-    return SessionWorkspace(st.session_state.ui_session_id)
+    if not workspace_path:
+        return None
+    try:
+        return SessionWorkspace.open_folder(Path(workspace_path))
+    except (OSError, ValueError) as error:
+        st.session_state.workspace_open_error = str(error)
+        st.session_state.pop("ui_workspace_path", None)
+        return None
 
 
 def _switch_workspace(selected: SessionWorkspace) -> None:
     library_home = st.session_state.get("workspace_library_home_path")
     for state_key in list(st.session_state):
         del st.session_state[state_key]
-    st.session_state.ui_session_id = selected.session_id
     st.session_state.ui_workspace_path = str(selected.root)
     if library_home:
         st.session_state.workspace_library_home_path = library_home
+    st.rerun()
+
+
+def _clear_workspace(message: str) -> None:
+    library_home = st.session_state.get("workspace_library_home_path")
+    for state_key in list(st.session_state):
+        del st.session_state[state_key]
+    if library_home:
+        st.session_state.workspace_library_home_path = library_home
+    st.session_state.workspace_notice = message
     st.rerun()
 
 
@@ -377,10 +384,8 @@ def _run_status(label: str):
 
 
 workspace = _workspace()
-profiles = _profiles()
 workspace_open_error = st.session_state.pop("workspace_open_error", None)
-if workspace_open_error:
-    st.warning("Could not reopen the selected workspace: {0}".format(workspace_open_error))
+workspace_notice = st.session_state.pop("workspace_notice", None)
 
 st.title("Quick Sight Backup & Restore")
 st.caption(
@@ -391,7 +396,59 @@ st.info(
     "Run the app on `127.0.0.1`. Restore execution requires a successful read-only preview "
     "and explicit typed confirmation."
 )
+if workspace_open_error:
+    st.warning("Could not reopen the selected workspace: {0}".format(workspace_open_error))
+if workspace_notice:
+    st.success(workspace_notice)
 
+if workspace is None:
+    st.subheader("Choose a workspace")
+    st.caption("Reloading the page does not create a workspace. Open one or create a named one.")
+    if "workspace_library_home_path" not in st.session_state:
+        st.session_state.workspace_library_home_path = str(SessionWorkspace.default_home())
+    startup_home = Path(st.session_state.workspace_library_home_path).expanduser()
+    st.code(str(startup_home), language=None)
+    try:
+        startup_workspaces = SessionWorkspace.discover_folders(startup_home)
+    except Exception as error:
+        startup_workspaces = []
+        st.warning("Unable to scan workspace library: {0}".format(error))
+    startup_selected = st.selectbox(
+        "Available workspaces",
+        options=startup_workspaces,
+        index=0 if startup_workspaces else None,
+        format_func=lambda path: path.name,
+        placeholder="No marked workspaces found",
+        key="startup_available_workspace",
+    )
+    if st.button(
+        "Open selected workspace",
+        disabled=startup_selected is None,
+        width="stretch",
+        key="startup_open_workspace",
+    ):
+        try:
+            _switch_workspace(SessionWorkspace.open_folder(startup_selected))
+        except Exception as error:
+            st.exception(error)
+    startup_name = st.text_input(
+        "New workspace name",
+        placeholder="project-backups",
+        key="startup_workspace_name",
+    )
+    if st.button(
+        "Create workspace",
+        disabled=not startup_name.strip(),
+        width="stretch",
+        key="startup_create_workspace",
+    ):
+        try:
+            _switch_workspace(SessionWorkspace.create_named(startup_home, startup_name.strip()))
+        except Exception as error:
+            st.exception(error)
+    st.stop()
+
+profiles = _profiles()
 backup_tab, restore_tab, history_tab, workspace_tab = st.tabs(
     ["Backup", "Restore", "History", "Workspace"]
 )
@@ -821,6 +878,19 @@ with workspace_tab:
     st.subheader("Workspace")
     st.caption("Current local workspace")
     st.code(str(workspace.root), language=None)
+    current_is_empty = workspace.is_empty()
+    if st.button(
+        "Remove current empty workspace",
+        disabled=not current_is_empty,
+        width="stretch",
+        help="Enabled only when the workspace contains no files.",
+    ):
+        try:
+            current_name = workspace.root.name
+            SessionWorkspace.remove_empty(workspace.root)
+            _clear_workspace("Removed empty workspace '{0}'.".format(current_name))
+        except Exception as error:
+            st.exception(error)
 
     st.markdown("#### Load a folder from this computer")
     st.caption(
@@ -912,6 +982,63 @@ with workspace_tab:
             _switch_workspace(selected)
         except Exception as error:
             st.exception(error)
+
+    if selected_workspace is not None:
+        with st.expander("Rename or remove selected workspace"):
+            try:
+                selected_value = SessionWorkspace.open_folder(selected_workspace)
+                selected_is_empty = selected_value.is_empty()
+                selected_error = None
+            except Exception as error:
+                selected_is_empty = False
+                selected_error = error
+            if selected_error is not None:
+                st.warning("Unable to validate workspace: {0}".format(selected_error))
+            elif selected_is_empty:
+                st.caption("This workspace is empty and can be removed.")
+            else:
+                st.caption("This workspace contains files and cannot be removed.")
+            rename_value = st.text_input(
+                "New name",
+                placeholder=selected_workspace.name,
+                key="rename_workspace_{0}".format(selected_workspace.name),
+            )
+            rename_col, remove_col = st.columns(2)
+            with rename_col:
+                rename_workspace = st.button(
+                    "Rename workspace",
+                    disabled=not rename_value.strip() or selected_error is not None,
+                    width="stretch",
+                )
+            with remove_col:
+                remove_workspace = st.button(
+                    "Remove empty workspace",
+                    disabled=not selected_is_empty,
+                    width="stretch",
+                )
+            if rename_workspace:
+                try:
+                    renamed = SessionWorkspace.rename_named(
+                        library_home,
+                        selected_workspace,
+                        rename_value.strip(),
+                    )
+                    _switch_workspace(renamed)
+                except Exception as error:
+                    st.exception(error)
+            if remove_workspace:
+                try:
+                    was_current = selected_workspace == workspace.root
+                    removed_name = selected_workspace.name
+                    SessionWorkspace.remove_empty(selected_workspace)
+                    if was_current:
+                        _clear_workspace("Removed empty workspace '{0}'.".format(removed_name))
+                    st.session_state.workspace_notice = "Removed empty workspace '{0}'.".format(
+                        removed_name
+                    )
+                    st.rerun()
+                except Exception as error:
+                    st.exception(error)
 
     role_counts = {
         role: len(workspace.files_for(role))

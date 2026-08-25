@@ -162,6 +162,28 @@ class SessionWorkspace:
             else (Path.home() / "QuickSightWorkspaces").absolute()
         )
 
+    @staticmethod
+    def _validate_workspace_name(name: str) -> str:
+        if not _WORKSPACE_NAME_RE.fullmatch(name):
+            raise ValueError(
+                "workspace name must start with a letter or number and contain only "
+                "letters, numbers, dots, underscores, or hyphens (maximum 64 characters)"
+            )
+        return name
+
+    @classmethod
+    def _library_child(cls, home: Path, child: Path) -> tuple[Path, Path]:
+        cls._reject_reparse_components(home)
+        root = home.expanduser().absolute()
+        source = child.expanduser()
+        if not source.is_absolute():
+            source = root / source
+        source = source.absolute()
+        if source.parent != root:
+            raise ValueError("workspace must be a direct child of the library")
+        cls._reject_reparse_components(source)
+        return root, source
+
     @classmethod
     def discover_folders(cls, home: Path) -> list[Path]:
         """List direct child folders containing valid workspace markers."""
@@ -193,15 +215,11 @@ class SessionWorkspace:
     @classmethod
     def create_named(cls, home: Path, name: str) -> "SessionWorkspace":
         """Create or reopen one safely named direct child of a workspace library."""
-        if not _WORKSPACE_NAME_RE.fullmatch(name):
-            raise ValueError(
-                "workspace name must start with a letter or number and contain only "
-                "letters, numbers, dots, underscores, or hyphens (maximum 64 characters)"
-            )
+        validated_name = cls._validate_workspace_name(name)
         cls._reject_reparse_components(home)
         root = home.expanduser().absolute()
         root.mkdir(parents=True, exist_ok=True)
-        return cls.create_folder(root / name)
+        return cls.create_folder(root / validated_name)
 
     @classmethod
     def create_folder(cls, path: Path) -> "SessionWorkspace":
@@ -229,6 +247,43 @@ class SessionWorkspace:
             raise ValueError("workspace folder does not exist")
         value = cls._read_marker(root / _WORKSPACE_MARKER)
         return cls(value["workspace_id"], root_directory=root, require_marker=True)
+
+    def is_empty(self) -> bool:
+        """Return whether the workspace has only its marker and empty standard folders."""
+        self._validate_workspace_tree()
+        marker = self.root / _WORKSPACE_MARKER
+        for entry in self.root.iterdir():
+            if entry == marker:
+                continue
+            if entry in (self.inputs, self.backups) and entry.is_dir() and not any(entry.iterdir()):
+                continue
+            return False
+        return True
+
+    @classmethod
+    def rename_named(cls, home: Path, child: Path, new_name: str) -> "SessionWorkspace":
+        """Rename a valid direct-child library workspace."""
+        root, source = cls._library_child(home, child)
+        destination = root / cls._validate_workspace_name(new_name)
+        if os.path.normcase(str(source)) == os.path.normcase(str(destination)):
+            raise ValueError("new workspace name must be different")
+        workspace = cls.open_folder(source)
+        if destination.exists():
+            raise ValueError("a workspace with that name already exists")
+        workspace._validate_workspace_tree()
+        source.rename(destination)
+        return cls.open_folder(destination)
+
+    @classmethod
+    def remove_empty(cls, path: Path) -> None:
+        """Remove a valid workspace only when it contains no user files."""
+        workspace = cls.open_folder(path)
+        if not workspace.is_empty():
+            raise ValueError("workspace is not empty")
+        workspace.inputs.rmdir()
+        workspace.backups.rmdir()
+        (workspace.root / _WORKSPACE_MARKER).unlink()
+        workspace.root.rmdir()
 
     @property
     def session_id(self) -> str:
