@@ -8,6 +8,7 @@ from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import Any, Optional
 import json
+import os
 import re
 import tempfile
 import uuid
@@ -16,6 +17,7 @@ import zipfile
 import yaml
 
 _SESSION_RE = re.compile(r"^[a-f0-9]{32}$")
+_WORKSPACE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _SAFE_SUFFIXES = {".json", ".yaml", ".yml", ".txt"}
 _MAX_UPLOAD_BYTES = 16 * 1024 * 1024
 _MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
@@ -150,6 +152,56 @@ class SessionWorkspace:
     @classmethod
     def create(cls) -> "SessionWorkspace":
         return cls(uuid.uuid4().hex)
+
+    @staticmethod
+    def default_home() -> Path:
+        configured = os.environ.get("QUICKSIGHT_WORKSPACE_HOME")
+        return (
+            Path(configured).expanduser().absolute()
+            if configured
+            else (Path.home() / "QuickSightWorkspaces").absolute()
+        )
+
+    @classmethod
+    def discover_folders(cls, home: Path) -> list[Path]:
+        """List direct child folders containing valid workspace markers."""
+        cls._reject_reparse_components(home)
+        root = home.expanduser().absolute()
+        if not root.exists():
+            return []
+        if not root.is_dir():
+            raise ValueError("workspace library path must be a directory")
+        values: list[Path] = []
+        for child in sorted(root.iterdir(), key=lambda item: item.name.lower()):
+            if not child.is_dir() or child.is_symlink():
+                continue
+            attributes = int(getattr(child.lstat(), "st_file_attributes", 0))
+            if attributes & _WINDOWS_REPARSE_ATTRIBUTE:
+                continue
+            marker = child / _WORKSPACE_MARKER
+            if not marker.exists():
+                continue
+            try:
+                cls._read_marker(marker)
+            except ValueError:
+                continue
+            values.append(child.absolute())
+            if len(values) >= 200:
+                break
+        return values
+
+    @classmethod
+    def create_named(cls, home: Path, name: str) -> "SessionWorkspace":
+        """Create or reopen one safely named direct child of a workspace library."""
+        if not _WORKSPACE_NAME_RE.fullmatch(name):
+            raise ValueError(
+                "workspace name must start with a letter or number and contain only "
+                "letters, numbers, dots, underscores, or hyphens (maximum 64 characters)"
+            )
+        cls._reject_reparse_components(home)
+        root = home.expanduser().absolute()
+        root.mkdir(parents=True, exist_ok=True)
+        return cls.create_folder(root / name)
 
     @classmethod
     def create_folder(cls, path: Path) -> "SessionWorkspace":
@@ -414,6 +466,102 @@ class SessionWorkspace:
             destination = (workspace.root / Path(*relative.parts)).resolve()
             if workspace.root not in destination.parents:
                 raise ValueError("workspace archive path escapes the new session")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary = destination.with_suffix(destination.suffix + ".tmp")
+            temporary.write_bytes(data)
+            temporary.replace(destination)
+        workspace._validate_workspace_tree()
+        return workspace
+
+    @classmethod
+    def restore_directory_files(
+        cls,
+        files: list[tuple[str, bytes]],
+        base_directory: Optional[Path] = None,
+    ) -> "SessionWorkspace":
+        """Load browser-selected directory files into a new isolated workspace."""
+        if not files:
+            raise ValueError("selected workspace folder is empty")
+        if len(files) > _MAX_ARCHIVE_ENTRIES:
+            raise ValueError("selected workspace folder contains too many files")
+        normalized: list[tuple[PurePosixPath, bytes]] = []
+        total = 0
+        for name, data in files:
+            path = PurePosixPath(name)
+            if (
+                not name
+                or name.startswith("/")
+                or "\\" in name
+                or path.is_absolute()
+                or ".." in path.parts
+                or any(
+                    "\x00" in part or ":" in part or part.endswith(" ") or part.endswith(".")
+                    for part in path.parts
+                )
+            ):
+                raise ValueError("selected workspace folder contains an unsafe path")
+            total += len(data)
+            if total > _MAX_ARCHIVE_UNCOMPRESSED_BYTES:
+                raise ValueError("selected workspace folder exceeds the 256 MiB size limit")
+            normalized.append((path, data))
+
+        markers = [(path, data) for path, data in normalized if path.name == _WORKSPACE_MARKER]
+        marker_aliases = [
+            path
+            for path, _data in normalized
+            if path.name.casefold() == _WORKSPACE_MARKER.casefold()
+        ]
+        if len(markers) != 1 or len(marker_aliases) != 1:
+            raise ValueError(
+                "selected folder must contain exactly one {0} marker".format(_WORKSPACE_MARKER)
+            )
+        marker_path, marker_data = markers[0]
+        if len(marker_data) > _MAX_UPLOAD_BYTES:
+            raise ValueError("workspace marker exceeds the 16 MiB file limit")
+        try:
+            marker_value = json.loads(marker_data.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as error:
+            raise ValueError("workspace marker is invalid") from error
+        if (
+            not isinstance(marker_value, dict)
+            or marker_value.get("schema_version") != _WORKSPACE_SCHEMA_VERSION
+            or not _SESSION_RE.fullmatch(str(marker_value.get("workspace_id", "")))
+        ):
+            raise ValueError("workspace marker schema or ID is invalid")
+
+        prefix = marker_path.parent.parts
+        payloads: list[tuple[PurePosixPath, bytes]] = []
+        names: set[str] = set()
+        for path, data in normalized:
+            if path.parts[: len(prefix)] != prefix:
+                raise ValueError("selected files do not belong to one marked workspace folder")
+            relative = PurePosixPath(*path.parts[len(prefix) :])
+            if relative.name == _WORKSPACE_MARKER:
+                continue
+            relative_key = relative.as_posix().casefold()
+            if not relative.parts or relative_key in names:
+                raise ValueError("selected workspace folder contains duplicate paths")
+            names.add(relative_key)
+            suffix = relative.suffix.lower()
+            if any(part.casefold() == "plans" for part in relative.parts) or suffix == ".tmp":
+                continue
+            if suffix == ".zip" and relative.name.casefold().startswith("workspace-"):
+                continue
+            if suffix not in _SAFE_SUFFIXES | {".zip"}:
+                raise ValueError("selected workspace folder contains an unsupported file type")
+            if len(data) > _MAX_UPLOAD_BYTES:
+                raise ValueError("selected workspace folder contains an oversized file")
+            if suffix != ".zip":
+                cls._reject_sensitive_upload(relative.name, data)
+            payloads.append((relative, data))
+
+        workspace = (
+            cls.create() if base_directory is None else cls(uuid.uuid4().hex, base_directory)
+        )
+        for relative, data in payloads:
+            destination = (workspace.root / Path(*relative.parts)).absolute()
+            if workspace.root not in destination.parents:
+                raise ValueError("selected workspace path escapes the new session")
             destination.parent.mkdir(parents=True, exist_ok=True)
             temporary = destination.with_suffix(destination.suffix + ".tmp")
             temporary.write_bytes(data)

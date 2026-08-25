@@ -286,10 +286,13 @@ def _workspace() -> SessionWorkspace:
 
 
 def _switch_workspace(selected: SessionWorkspace) -> None:
+    library_home = st.session_state.get("workspace_library_home_path")
     for state_key in list(st.session_state):
         del st.session_state[state_key]
     st.session_state.ui_session_id = selected.session_id
     st.session_state.ui_workspace_path = str(selected.root)
+    if library_home:
+        st.session_state.workspace_library_home_path = library_home
     st.rerun()
 
 
@@ -815,29 +818,97 @@ with history_tab:
             )
 
 with workspace_tab:
-    st.subheader("Local workspace folder")
-    st.caption(
-        "Streamlit cannot open a native server-side folder picker. Enter an explicit local "
-        "folder path, then create a new workspace or open one containing a valid marker."
-    )
+    st.subheader("Workspace")
+    st.caption("Current local workspace")
     st.code(str(workspace.root), language=None)
-    folder_path = st.text_input(
-        "Workspace folder path",
-        value=str(workspace.root),
-        key="workspace_folder_path",
+
+    st.markdown("#### Load a folder from this computer")
+    st.caption(
+        "Choose a workspace folder in the browser. Its validated files are copied into a new "
+        "isolated session; browser security prevents writing changes back to the selected folder."
     )
-    create_col, open_col = st.columns(2)
-    with create_col:
-        create_folder = st.button("Create workspace folder", width="stretch")
-    with open_col:
-        open_folder = st.button("Open workspace folder", width="stretch")
-    if create_folder or open_folder:
+    directory_uploads = st.file_uploader(
+        "Select workspace folder",
+        accept_multiple_files="directory",
+        key="workspace_directory_upload",
+        help=(
+            "The selected folder must contain exactly one valid "
+            ".quicksight-workspace.json marker."
+        ),
+    )
+    if st.button(
+        "Load selected folder",
+        type="primary",
+        disabled=not directory_uploads,
+        width="stretch",
+    ):
         try:
-            selected = (
-                SessionWorkspace.create_folder(Path(folder_path))
-                if create_folder
-                else SessionWorkspace.open_folder(Path(folder_path))
+            restored_workspace = SessionWorkspace.restore_directory_files(
+                [(upload.name, upload.getvalue()) for upload in directory_uploads]
             )
+            _switch_workspace(restored_workspace)
+        except Exception as error:
+            st.exception(error)
+
+    st.markdown("#### Workspace library")
+    if "workspace_library_home_path" not in st.session_state:
+        st.session_state.workspace_library_home_path = str(SessionWorkspace.default_home())
+    library_home = Path(st.session_state.workspace_library_home_path).expanduser()
+    st.caption("Persistent workspaces stored directly under:")
+    st.code(str(library_home), language=None)
+    try:
+        available_workspaces = SessionWorkspace.discover_folders(library_home)
+        discovery_error = None
+    except Exception as error:
+        available_workspaces = []
+        discovery_error = error
+    if discovery_error is not None:
+        st.warning("Unable to scan workspace library: {0}".format(discovery_error))
+
+    current_index = next(
+        (
+            index
+            for index, candidate in enumerate(available_workspaces)
+            if candidate == workspace.root
+        ),
+        None,
+    )
+    selected_workspace = st.selectbox(
+        "Available workspaces",
+        options=available_workspaces,
+        index=(
+            current_index if current_index is not None else (0 if available_workspaces else None)
+        ),
+        format_func=lambda path: path.name,
+        placeholder="No marked workspaces found",
+        key="available_workspace",
+    )
+    if st.button(
+        "Open selected workspace",
+        disabled=selected_workspace is None,
+        width="stretch",
+    ):
+        try:
+            _switch_workspace(SessionWorkspace.open_folder(selected_workspace))
+        except Exception as error:
+            st.exception(error)
+
+    new_workspace_name = st.text_input(
+        "New workspace name",
+        placeholder="project-backups",
+        help=(
+            "Creates one direct child of the workspace library. Use letters, numbers, dots, "
+            "underscores, or hyphens."
+        ),
+        key="new_workspace_name",
+    )
+    if st.button(
+        "Create workspace",
+        disabled=not new_workspace_name.strip(),
+        width="stretch",
+    ):
+        try:
+            selected = SessionWorkspace.create_named(library_home, new_workspace_name.strip())
             _switch_workspace(selected)
         except Exception as error:
             st.exception(error)
@@ -851,6 +922,52 @@ with workspace_tab:
     metrics[1].metric("Manifests", role_counts["manifest"])
     metrics[2].metric("Restore configs", role_counts["restore_config"])
     metrics[3].metric("Overrides", role_counts["overrides"])
+
+    with st.expander("Advanced workspace locations"):
+        st.caption(
+            "Change the library root or explicitly create/open a marked workspace outside it. "
+            "External paths are local server paths and are not browser folder selections."
+        )
+        configured_library_home = st.text_input(
+            "Workspace library folder",
+            value=str(library_home),
+            key="workspace_library_home_input",
+            help="The library lists only valid, direct child workspace folders.",
+        )
+        if (
+            configured_library_home.strip()
+            and configured_library_home.strip() != st.session_state.workspace_library_home_path
+        ):
+            st.session_state.workspace_library_home_path = configured_library_home.strip()
+            st.rerun()
+        external_folder_path = st.text_input(
+            "External workspace folder path",
+            placeholder=r"C:\path\to\workspace",
+            key="external_workspace_folder_path",
+        )
+        create_col, open_col = st.columns(2)
+        with create_col:
+            create_external = st.button(
+                "Create external workspace",
+                disabled=not external_folder_path.strip(),
+                width="stretch",
+            )
+        with open_col:
+            open_external = st.button(
+                "Open external workspace",
+                disabled=not external_folder_path.strip(),
+                width="stretch",
+            )
+        if create_external or open_external:
+            try:
+                selected = (
+                    SessionWorkspace.create_folder(Path(external_folder_path))
+                    if create_external
+                    else SessionWorkspace.open_folder(Path(external_folder_path))
+                )
+                _switch_workspace(selected)
+            except Exception as error:
+                st.exception(error)
 
     with st.expander("Archive workspace (optional)"):
         st.caption(
