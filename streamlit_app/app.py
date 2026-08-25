@@ -251,6 +251,27 @@ def _loaded_json_file(
     )
 
 
+def _workspace_file(
+    workspace: SessionWorkspace,
+    role: str,
+    label: str,
+    key: str,
+) -> InlineFile | None:
+    paths = workspace.files_for(role)
+    if not paths:
+        st.info(
+            "No matching {0} files are loaded in this workspace.".format(role.replace("_", " "))
+        )
+        return None
+    selected = st.selectbox(
+        label,
+        options=paths,
+        format_func=lambda path: str(path.relative_to(workspace.root)),
+        key=key,
+    )
+    return InlineFile(name=selected.name, content=selected.read_bytes())
+
+
 def _workspace() -> SessionWorkspace:
     if "ui_session_id" not in st.session_state:
         st.session_state.ui_session_id = uuid.uuid4().hex
@@ -350,7 +371,9 @@ st.info(
     "and explicit typed confirmation."
 )
 
-backup_tab, restore_tab, history_tab = st.tabs(["Backup", "Restore", "History"])
+backup_tab, restore_tab, history_tab, workspace_tab = st.tabs(
+    ["Backup", "Restore", "History", "Workspace"]
+)
 
 with backup_tab:
     st.subheader("Create backup")
@@ -358,7 +381,7 @@ with backup_tab:
         st.error("No named AWS profiles are available on this machine.")
     backup_config_source = st.radio(
         "Backup configuration source",
-        options=["Upload file", "Edit JSON inline"],
+        options=["Upload file", "Workspace file", "Edit JSON inline"],
         horizontal=True,
         key="backup_config_source",
     )
@@ -379,6 +402,25 @@ with backup_tab:
                 "Loaded backup configuration JSON",
                 "loaded_backup_config_editor",
                 "The uploaded file is parsed and normalized to JSON before editing.",
+                "backup",
+            )
+    elif backup_config_source == "Workspace file":
+        backup_config = _workspace_file(
+            workspace,
+            "backup_config",
+            "Loaded backup configuration",
+            "workspace_backup_config",
+        )
+        if backup_config is not None and st.checkbox(
+            "Edit workspace backup config inline",
+            key="edit_workspace_backup_config",
+        ):
+            backup_config = _loaded_json_file(
+                workspace,
+                backup_config,
+                "Workspace backup configuration JSON",
+                "workspace_backup_config_editor",
+                "Edit the selected workspace file after safe YAML/JSON normalization.",
                 "backup",
             )
     else:
@@ -467,14 +509,28 @@ with backup_tab:
 
 with restore_tab:
     st.subheader("Restore from manifest")
-    manifest_upload = st.file_uploader(
-        "Backup manifest",
-        type=["json"],
-        key="restore_manifest_upload",
+    manifest_source = st.radio(
+        "Backup manifest source",
+        options=["Upload file", "Workspace file"],
+        horizontal=True,
+        key="restore_manifest_source",
     )
+    if manifest_source == "Upload file":
+        manifest_upload = st.file_uploader(
+            "Backup manifest",
+            type=["json"],
+            key="restore_manifest_upload",
+        )
+    else:
+        manifest_upload = _workspace_file(
+            workspace,
+            "manifest",
+            "Loaded backup manifest",
+            "workspace_restore_manifest",
+        )
     restore_config_source = st.radio(
         "Restore configuration source",
-        options=["Upload file", "Edit JSON inline"],
+        options=["Upload file", "Workspace file", "Edit JSON inline"],
         horizontal=True,
         key="restore_config_source",
     )
@@ -497,6 +553,25 @@ with restore_tab:
                 "Edit target settings and restore.identity_mappings after YAML/JSON normalization.",
                 "restore",
             )
+    elif restore_config_source == "Workspace file":
+        restore_config = _workspace_file(
+            workspace,
+            "restore_config",
+            "Loaded restore configuration",
+            "workspace_restore_config",
+        )
+        if restore_config is not None and st.checkbox(
+            "Edit workspace restore config and identity mappings inline",
+            key="edit_workspace_restore_config",
+        ):
+            restore_config = _loaded_json_file(
+                workspace,
+                restore_config,
+                "Workspace restore configuration JSON",
+                "workspace_restore_config_editor",
+                "Edit target settings and restore.identity_mappings from the selected workspace file.",
+                "restore",
+            )
     else:
         st.caption(
             "Cross-account user/group mappings are edited under "
@@ -514,7 +589,7 @@ with restore_tab:
 
     overrides_source = st.radio(
         "Overrides source",
-        options=["None", "Upload file", "Edit JSON inline"],
+        options=["None", "Upload file", "Workspace file", "Edit JSON inline"],
         horizontal=True,
         key="restore_overrides_source",
     )
@@ -535,6 +610,26 @@ with restore_tab:
                 "Loaded API-native overrides JSON",
                 "loaded_restore_overrides_editor",
                 "The edited JSON keeps the uploaded filename so existing overrides_file references work.",
+                "overrides",
+                formats=("JSON",),
+            )
+    elif overrides_source == "Workspace file":
+        overrides_upload = _workspace_file(
+            workspace,
+            "overrides",
+            "Loaded overrides JSON",
+            "workspace_restore_overrides",
+        )
+        if overrides_upload is not None and st.checkbox(
+            "Edit workspace overrides inline",
+            key="edit_workspace_overrides",
+        ):
+            overrides_upload = _loaded_json_file(
+                workspace,
+                overrides_upload,
+                "Workspace API-native overrides JSON",
+                "workspace_restore_overrides_editor",
+                "Edit API-native overrides from the selected workspace file.",
                 "overrides",
                 formats=("JSON",),
             )
@@ -700,6 +795,53 @@ with history_tab:
                 "Download {0}".format(artifact.path.name),
                 "history-{0}".format(index),
             )
+
+with workspace_tab:
+    st.subheader("Save or restore workspace")
+    st.caption(
+        "Workspace archives include configs, manifests, overrides, backup outputs, and reports. "
+        "Internal plans and temporary files are excluded and regenerated from a fresh preview."
+    )
+    role_counts = {
+        role: len(workspace.files_for(role))
+        for role in ("backup_config", "manifest", "restore_config", "overrides")
+    }
+    metrics = st.columns(4)
+    metrics[0].metric("Backup configs", role_counts["backup_config"])
+    metrics[1].metric("Manifests", role_counts["manifest"])
+    metrics[2].metric("Restore configs", role_counts["restore_config"])
+    metrics[3].metric("Overrides", role_counts["overrides"])
+
+    if st.button("Save workspace archive", width="stretch"):
+        try:
+            archive_path = workspace.export_archive()
+            st.session_state.workspace_archive_path = str(archive_path)
+        except Exception as error:
+            st.exception(error)
+    archive_path_value = st.session_state.get("workspace_archive_path")
+    if archive_path_value:
+        st.success("Workspace archive saved: {0}".format(archive_path_value))
+
+    archive_upload = st.file_uploader(
+        "Restore workspace archive",
+        type=["zip"],
+        key="workspace_archive_upload",
+        help="The archive is fully validated before files are extracted into a new session.",
+    )
+    if st.button(
+        "Restore workspace",
+        type="primary",
+        disabled=archive_upload is None,
+        width="stretch",
+    ):
+        try:
+            restored_workspace = SessionWorkspace.restore_archive(archive_upload.getvalue())
+            for state_key in list(st.session_state):
+                del st.session_state[state_key]
+            st.session_state.ui_session_id = restored_workspace.session_id
+            st.rerun()
+        except Exception as error:
+            st.exception(error)
 
 st.divider()
 st.caption("Session workspace: {0}".format(workspace.root))
