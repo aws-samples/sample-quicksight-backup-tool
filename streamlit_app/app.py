@@ -17,6 +17,8 @@ from streamlit_app.controllers.backup_controller import BackupController
 from streamlit_app.controllers.restore_controller import RestoreController, RestorePreview
 from streamlit_app.state.session_workspace import SessionWorkspace
 
+_README_URL = "https://github.com/aws-samples/sample-quicksight-backup-tool/blob/main/README.md"
+
 st.set_page_config(
     page_title="Quick Sight Backup & Restore",
     page_icon="💾",
@@ -33,6 +35,27 @@ class InlineFile:
 
     def getvalue(self) -> bytes:
         return self.content
+
+
+def _show_tab_help(
+    introduction: str,
+    steps: tuple[str, ...],
+    links: tuple[tuple[str, str], ...],
+) -> None:
+    step_text = "\n".join(
+        "{0}. {1}".format(index, step) for index, step in enumerate(steps, start=1)
+    )
+    link_text = " · ".join(
+        "[{0}]({1}{2})".format(label, _README_URL, anchor) for label, anchor in links
+    )
+    with st.container(border=True):
+        st.markdown(
+            "**How to use this tab**\n\n{0}\n\n{1}\n\n**README:** {2}".format(
+                introduction,
+                step_text,
+                link_text,
+            )
+        )
 
 
 def _backup_template() -> str:
@@ -404,6 +427,15 @@ if workspace_notice:
 if workspace is None:
     st.subheader("Choose a workspace")
     st.caption("Reloading the page does not create a workspace. Open one or create a named one.")
+    _show_tab_help(
+        "A workspace is the local folder that keeps this UI's inputs and generated artifacts together.",
+        (
+            "Open an existing marked workspace from the library below, or create a named one.",
+            "After it opens, confirm the current path in the Workspace tab before starting work.",
+            "Use the Workspace tab later to import a folder, use an external path, or manage archives.",
+        ),
+        (("Workspace and local UI guide", "#local-web-interface-optional"),),
+    )
     if "workspace_library_home_path" not in st.session_state:
         st.session_state.workspace_library_home_path = str(SessionWorkspace.default_home())
     startup_home = Path(st.session_state.workspace_library_home_path).expanduser()
@@ -449,12 +481,24 @@ if workspace is None:
     st.stop()
 
 profiles = _profiles()
-backup_tab, restore_tab, history_tab, workspace_tab = st.tabs(
-    ["Backup", "Restore", "History", "Workspace"]
+workspace_tab, backup_tab, restore_tab, history_tab = st.tabs(
+    ["Workspace", "Backup", "Restore", "History"]
 )
 
 with backup_tab:
     st.subheader("Create backup")
+    _show_tab_help(
+        "Create a Quick Sight backup and keep its manifest and report in the current workspace.",
+        (
+            "Choose or edit a backup configuration, then select the named AWS profile and backup mode.",
+            "Run Validate backup first to check the configuration, credentials, connectivity, and prerequisites.",
+            "Run the backup, review the resource counts, and retain the generated manifest for restore.",
+        ),
+        (
+            ("Backup configuration", "#configuration"),
+            ("Backup usage", "#usage"),
+        ),
+    )
     if not profiles:
         st.error("No named AWS profiles are available on this machine.")
     backup_config_source = st.radio(
@@ -587,6 +631,18 @@ with backup_tab:
 
 with restore_tab:
     st.subheader("Restore from manifest")
+    _show_tab_help(
+        "Restore from an authoritative backup manifest into the target described by your restore configuration.",
+        (
+            "Choose the manifest and target restore configuration; add API-native overrides only when required.",
+            "Build and review the read-only preview, including target details, actions, conflicts, and warnings.",
+            "Type RESTORE only after reviewing the plan, then inspect and download the generated report.",
+        ),
+        (
+            ("Restore workflow", "#restore-part-2-p0"),
+            ("Restore security and limitations", "#restore-security-and-limitations"),
+        ),
+    )
     manifest_source = st.radio(
         "Backup manifest source",
         options=["Upload file", "Workspace file"],
@@ -852,8 +908,20 @@ with restore_tab:
                 st.exception(error)
 
 with history_tab:
-    st.subheader("Local session history")
-    st.caption("This tab reads local session files only and does not initialize AWS clients.")
+    st.subheader("Workspace history")
+    _show_tab_help(
+        "Review manifests and reports already stored in the current workspace without calling AWS.",
+        (
+            "Open the persistent workspace whose local artifacts you want to review.",
+            "Expand an item to inspect its size and any available JSON summary.",
+            "Download the manifest or report you need; this is workspace history, not AWS service history.",
+        ),
+        (
+            ("Reports and manifests", "#reports-and-manifests"),
+            ("Workspace persistence", "#local-web-interface-optional"),
+        ),
+    )
+    st.caption("This tab reads local workspace files only and does not initialize AWS clients.")
     artifacts = workspace.artifacts()
     if not artifacts:
         st.info("No manifests or reports have been generated in this UI session.")
@@ -876,6 +944,15 @@ with history_tab:
 
 with workspace_tab:
     st.subheader("Workspace")
+    _show_tab_help(
+        "Workspaces keep configuration files, manifests, backup outputs, and reports together on this machine.",
+        (
+            "Confirm the current workspace path below before running a backup or restore.",
+            "Use the library for persistent named workspaces, or load a browser-selected folder as an isolated copy.",
+            "Rename library workspaces here; removal is enabled only when a workspace is empty. External paths and ZIP archives are optional.",
+        ),
+        (("Workspace and local UI guide", "#local-web-interface-optional"),),
+    )
     st.caption("Current local workspace")
     st.code(str(workspace.root), language=None)
     current_is_empty = workspace.is_empty()
