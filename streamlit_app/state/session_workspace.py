@@ -122,23 +122,23 @@ class SessionWorkspace:
     @staticmethod
     def _read_marker(marker: Path) -> dict[str, Any]:
         if not marker.is_file() or marker.is_symlink():
-            raise ValueError("workspace marker must be a regular file")
+            raise ValueError("workspace metadata must be a regular file")
         try:
             value = json.loads(marker.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, ValueError) as error:
-            raise ValueError("workspace marker is invalid") from error
+            raise ValueError("workspace metadata is invalid") from error
         if not isinstance(value, dict) or value.get("schema_version") != _WORKSPACE_SCHEMA_VERSION:
-            raise ValueError("workspace marker schema is missing or unsupported")
+            raise ValueError("workspace metadata schema is missing or unsupported")
         workspace_id = value.get("workspace_id")
         if not isinstance(workspace_id, str) or not _SESSION_RE.fullmatch(workspace_id):
-            raise ValueError("workspace marker ID is invalid")
+            raise ValueError("workspace metadata ID is invalid")
         return value
 
     @classmethod
     def _validate_marker(cls, marker: Path, expected_session_id: str) -> None:
         value = cls._read_marker(marker)
         if value["workspace_id"] != expected_session_id:
-            raise ValueError("workspace marker ID does not match the selected session")
+            raise ValueError("workspace metadata ID does not match the selected session")
 
     def _write_marker(self, marker: Path) -> None:
         value = {
@@ -186,7 +186,7 @@ class SessionWorkspace:
 
     @classmethod
     def discover_folders(cls, home: Path) -> list[Path]:
-        """List direct child folders containing valid workspace markers."""
+        """List direct child folders containing valid workspace metadata."""
         cls._reject_reparse_components(home)
         root = home.expanduser().absolute()
         if not root.exists():
@@ -232,7 +232,9 @@ class SessionWorkspace:
             entries = list(root.iterdir())
             marker = root / _WORKSPACE_MARKER
             if entries and not marker.exists():
-                raise ValueError("refusing to create a workspace in a nonempty unmarked folder")
+                raise ValueError(
+                    "refusing to create a workspace in a nonempty folder that is not a workspace"
+                )
             if marker.exists():
                 value = cls._read_marker(marker)
                 return cls(value["workspace_id"], root_directory=root, require_marker=True)
@@ -567,29 +569,27 @@ class SessionWorkspace:
             if path.name.casefold() == _WORKSPACE_MARKER.casefold()
         ]
         if len(markers) != 1 or len(marker_aliases) != 1:
-            raise ValueError(
-                "selected folder must contain exactly one {0} marker".format(_WORKSPACE_MARKER)
-            )
+            raise ValueError("selected folder is not a valid workspace")
         marker_path, marker_data = markers[0]
         if len(marker_data) > _MAX_UPLOAD_BYTES:
-            raise ValueError("workspace marker exceeds the 16 MiB file limit")
+            raise ValueError("workspace metadata exceeds the 16 MiB file limit")
         try:
             marker_value = json.loads(marker_data.decode("utf-8"))
         except (UnicodeDecodeError, ValueError) as error:
-            raise ValueError("workspace marker is invalid") from error
+            raise ValueError("workspace metadata is invalid") from error
         if (
             not isinstance(marker_value, dict)
             or marker_value.get("schema_version") != _WORKSPACE_SCHEMA_VERSION
             or not _SESSION_RE.fullmatch(str(marker_value.get("workspace_id", "")))
         ):
-            raise ValueError("workspace marker schema or ID is invalid")
+            raise ValueError("workspace format or ID is invalid")
 
         prefix = marker_path.parent.parts
         payloads: list[tuple[PurePosixPath, bytes]] = []
         names: set[str] = set()
         for path, data in normalized:
             if path.parts[: len(prefix)] != prefix:
-                raise ValueError("selected files do not belong to one marked workspace folder")
+                raise ValueError("selected files do not belong to one workspace")
             relative = PurePosixPath(*path.parts[len(prefix) :])
             if relative.name == _WORKSPACE_MARKER:
                 continue

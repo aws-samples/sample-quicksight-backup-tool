@@ -430,7 +430,7 @@ if workspace is None:
     _show_tab_help(
         "A workspace is the local folder that keeps this UI's inputs and generated artifacts together.",
         (
-            "Open an existing marked workspace from the library below, or create a named one.",
+            "Open an existing workspace from the library below, or create a named one.",
             "After it opens, confirm the current path in the Workspace tab before starting work.",
             "Use the Workspace tab later to import a folder, use an external path, or manage archives.",
         ),
@@ -450,7 +450,7 @@ if workspace is None:
         options=startup_workspaces,
         index=0 if startup_workspaces else None,
         format_func=lambda path: path.name,
-        placeholder="No marked workspaces found",
+        placeholder="No workspaces found",
         key="startup_available_workspace",
     )
     if st.button(
@@ -978,10 +978,7 @@ with workspace_tab:
         "Select workspace folder",
         accept_multiple_files="directory",
         key="workspace_directory_upload",
-        help=(
-            "The selected folder must contain exactly one valid "
-            ".quicksight-workspace.json marker."
-        ),
+        help="Choose a folder previously created by this app.",
     )
     if st.button(
         "Load selected folder",
@@ -1027,7 +1024,7 @@ with workspace_tab:
             current_index if current_index is not None else (0 if available_workspaces else None)
         ),
         format_func=lambda path: path.name,
-        placeholder="No marked workspaces found",
+        placeholder="No workspaces found",
         key="available_workspace",
     )
     if st.button(
@@ -1129,7 +1126,7 @@ with workspace_tab:
 
     with st.expander("Advanced workspace locations"):
         st.caption(
-            "Change the library root or explicitly create/open a marked workspace outside it. "
+            "Change the library root or explicitly create/open a workspace outside it. "
             "External paths are local server paths and are not browser folder selections."
         )
         configured_library_home = st.text_input(
